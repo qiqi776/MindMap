@@ -1,0 +1,12 @@
+bin/
+dist/
+tmp/
+vendor/
+.idea/
+.vscode/
+.DS_Store
+*.log
+*.out
+coverage.out
+*.pb.go
+
