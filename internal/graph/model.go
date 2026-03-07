@@ -2,11 +2,82 @@
 package graph
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
-
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
+
+// JSONDocument persists arbitrary JSON for node and edge properties.
+// It implements sql.Scanner and driver.Valuer so GORM can map the type to a
+// MySQL JSON column without additional runtime dependencies.
+type JSONDocument []byte
+
+// Value converts the JSON document into a database value.
+// Empty documents are normalized to an empty JSON object so NOT NULL JSON
+// columns remain writable even when callers omit optional property values.
+func (j JSONDocument) Value() (driver.Value, error) {
+	if len(j) == 0 {
+		return "{}", nil
+	}
+
+	if !json.Valid(j) {
+		return nil, fmt.Errorf("graph: invalid JSON document")
+	}
+
+	return string(j), nil
+}
+
+// Scan loads a JSON document from the database driver into the in-memory type.
+func (j *JSONDocument) Scan(value any) error {
+	switch v := value.(type) {
+	case nil:
+		*j = JSONDocument("{}")
+		return nil
+	case []byte:
+		if !json.Valid(v) {
+			return fmt.Errorf("graph: invalid JSON document")
+		}
+		*j = append((*j)[:0], v...)
+		return nil
+	case string:
+		if !json.Valid([]byte(v)) {
+			return fmt.Errorf("graph: invalid JSON document")
+		}
+		*j = append((*j)[:0], v...)
+		return nil
+	default:
+		return fmt.Errorf("graph: unsupported JSON scan type %T", value)
+	}
+}
+
+// MarshalJSON exposes the document as raw JSON when the model is serialized.
+func (j JSONDocument) MarshalJSON() ([]byte, error) {
+	if len(j) == 0 {
+		return []byte("{}"), nil
+	}
+
+	if !json.Valid(j) {
+		return nil, fmt.Errorf("graph: invalid JSON document")
+	}
+
+	return []byte(j), nil
+}
+
+// UnmarshalJSON validates inbound JSON before assigning it to the document.
+func (j *JSONDocument) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		*j = JSONDocument("{}")
+		return nil
+	}
+
+	if !json.Valid(data) {
+		return fmt.Errorf("graph: invalid JSON document")
+	}
+
+	*j = append((*j)[:0], data...)
+	return nil
+}
 
 // Node stores one graph vertex in the mesh-style mind map domain.
 // It persists the stable UUID identity, domain type, summary content, and
@@ -27,7 +98,7 @@ type Node struct {
 
 	// Properties stores the extensible JSON document used for coordinates,
 	// visual style, and additional business attributes required by clients.
-	Properties datatypes.JSON `gorm:"column:properties;type:json;not null"`
+	Properties JSONDocument `gorm:"column:properties;type:json;not null"`
 
 	// CreatedAt records when the node was first persisted for audit,
 	// synchronization, and downstream replication workflows.
@@ -39,7 +110,7 @@ type Node struct {
 
 	// DeletedAt marks the node as soft-deleted without removing the row so
 	// higher-level services can preserve auditability and recovery paths.
-	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;type:datetime(3);index:idx_nodes_deleted_at"`
+	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime(3);index:idx_nodes_deleted_at"`
 }
 
 // TableName binds the Node model to the nodes table.
@@ -75,7 +146,7 @@ type Edge struct {
 
 	// Properties stores the extensible JSON document used for line style,
 	// arrow configuration, and additional edge-specific business attributes.
-	Properties datatypes.JSON `gorm:"column:properties;type:json;not null"`
+	Properties JSONDocument `gorm:"column:properties;type:json;not null"`
 
 	// CreatedAt records when the edge was first persisted for audit,
 	// synchronization, and downstream replication workflows.
@@ -87,7 +158,7 @@ type Edge struct {
 
 	// DeletedAt marks the edge as soft-deleted without removing the row so
 	// higher-level services can preserve auditability and recovery paths.
-	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;type:datetime(3);index:idx_edges_deleted_at"`
+	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime(3);index:idx_edges_deleted_at"`
 }
 
 // TableName binds the Edge model to the edges table.
