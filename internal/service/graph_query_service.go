@@ -14,6 +14,9 @@ var (
 	// prevent cancellation and deadline propagation during traversal.
 	ErrNilContext = errors.New("service: nil context")
 
+	// ErrNodeNotFound indicates that the requested node does not exist in storage.
+	ErrNodeNotFound = errors.New("service: node not found")
+
 	// ErrEmptyFocusNodeID indicates that the focus node identifier is missing.
 	ErrEmptyFocusNodeID = errors.New("service: empty focus node ID")
 
@@ -21,7 +24,18 @@ var (
 	ErrNegativeMaxDepth = errors.New("service: negative max depth")
 
 	// ErrFocusNodeNotFound indicates that the focus node does not exist in storage.
-	ErrFocusNodeNotFound = errors.New("service: focus node not found")
+	// It aliases ErrNodeNotFound so callers can match either identifier.
+	ErrFocusNodeNotFound = ErrNodeNotFound
+
+	// ErrSourceNodeNotFound indicates that the source endpoint of an edge is missing.
+	ErrSourceNodeNotFound = errors.New("service: source node not found")
+
+	// ErrTargetNodeNotFound indicates that the target endpoint of an edge is missing.
+	ErrTargetNodeNotFound = errors.New("service: target node not found")
+
+	// ErrCyclicDependency indicates that a write operation would violate
+	// a domain rule that forbids a cycle for a constrained relation type.
+	ErrCyclicDependency = errors.New("service: cyclic dependency")
 )
 
 // SubGraphDTO contains the unique nodes and edges collected during a bounded
