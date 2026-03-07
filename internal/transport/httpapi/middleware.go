@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"runtime/debug"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	appservice "treemindmap/internal/service"
@@ -26,7 +27,7 @@ func RecoveryMiddleware(logger *log.Logger) gin.HandlerFunc {
 						safeRequestMethod(c),
 						safeRequestPath(c),
 						sanitizeLogText(fmt.Sprint(recovered), 512),
-						sanitizeLogText(string(debug.Stack()), 8192),
+						sanitizedStack(24, 8192),
 					)
 				}
 
@@ -136,4 +137,35 @@ func sanitizeLogText(value string, limit int) string {
 	}
 
 	return clean
+}
+
+func sanitizedStack(frameLimit int, textLimit int) string {
+	if frameLimit <= 0 {
+		frameLimit = 16
+	}
+
+	programCounters := make([]uintptr, frameLimit)
+	frameCount := runtime.Callers(3, programCounters)
+	if frameCount == 0 {
+		return ""
+	}
+
+	frames := runtime.CallersFrames(programCounters[:frameCount])
+	parts := make([]string, 0, frameCount)
+	for index := 0; index < frameLimit; index++ {
+		frame, more := frames.Next()
+		functionName := frame.Function
+		if functionName != "" {
+			functionName = filepath.Base(functionName)
+		}
+
+		fileName := filepath.Base(frame.File)
+		parts = append(parts, fmt.Sprintf("%s(%s:%d)", functionName, fileName, frame.Line))
+
+		if !more {
+			break
+		}
+	}
+
+	return sanitizeLogText(strings.Join(parts, " "), textLimit)
 }

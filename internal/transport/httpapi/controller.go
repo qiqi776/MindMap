@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -64,13 +65,13 @@ func (ctl *GraphController) GetFocusGraph(c *gin.Context) {
 
 	var uriRequest FocusGraphURIRequest
 	if err := c.ShouldBindUri(&uriRequest); err != nil {
-		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(err))
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&uriRequest, err))
 		return
 	}
 
 	var queryRequest FocusGraphQueryRequest
 	if err := c.ShouldBindQuery(&queryRequest); err != nil {
-		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(err))
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&queryRequest, err))
 		return
 	}
 
@@ -113,7 +114,7 @@ func (ctl *GraphController) CreateNode(c *gin.Context) {
 
 	var request CreateNodeRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(err))
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&request, err))
 		return
 	}
 
@@ -150,7 +151,7 @@ func (ctl *GraphController) CreateEdge(c *gin.Context) {
 
 	var request CreateEdgeRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(err))
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&request, err))
 		return
 	}
 
@@ -225,13 +226,13 @@ func (ctl *GraphController) UpdateNodePosition(c *gin.Context) {
 
 	var uriRequest UpdateNodePositionURIRequest
 	if err := c.ShouldBindUri(&uriRequest); err != nil {
-		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(err))
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&uriRequest, err))
 		return
 	}
 
 	var request UpdateNodePositionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(err))
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&request, err))
 		return
 	}
 
@@ -364,7 +365,7 @@ func marshalJSONDocument(value any) (model.JSONDocument, error) {
 	return model.JSONDocument(encoded), nil
 }
 
-func formatBindingError(err error) string {
+func formatBindingError(payload any, err error) string {
 	if err == nil {
 		return "invalid request"
 	}
@@ -374,10 +375,67 @@ func formatBindingError(err error) string {
 		return err.Error()
 	}
 
+	fieldNames := externalFieldNames(payload)
 	messages := make([]string, 0, len(validationErrors))
 	for _, fieldError := range validationErrors {
-		messages = append(messages, fmt.Sprintf("%s failed on %s", fieldError.Field(), fieldError.Tag()))
+		fieldName := fieldError.Field()
+		if taggedName, exists := fieldNames[fieldError.StructField()]; exists && taggedName != "" {
+			fieldName = taggedName
+		}
+
+		messages = append(messages, fmt.Sprintf("%s failed on %s", fieldName, fieldError.Tag()))
 	}
 	sort.Strings(messages)
 	return strings.Join(messages, "; ")
+}
+
+func externalFieldNames(payload any) map[string]string {
+	result := make(map[string]string)
+	if payload == nil {
+		return result
+	}
+
+	payloadType := reflect.TypeOf(payload)
+	for payloadType.Kind() == reflect.Pointer {
+		payloadType = payloadType.Elem()
+	}
+
+	if payloadType.Kind() != reflect.Struct {
+		return result
+	}
+
+	for index := 0; index < payloadType.NumField(); index++ {
+		field := payloadType.Field(index)
+		if field.PkgPath != "" {
+			continue
+		}
+
+		name := bindingFieldName(field)
+		if name == "" {
+			name = field.Name
+		}
+
+		result[field.Name] = name
+	}
+
+	return result
+}
+
+func bindingFieldName(field reflect.StructField) string {
+	tagCandidates := []string{"json", "uri", "form"}
+	for _, tagName := range tagCandidates {
+		value := field.Tag.Get(tagName)
+		if value == "" {
+			continue
+		}
+
+		name := strings.Split(value, ",")[0]
+		if name == "" || name == "-" {
+			continue
+		}
+
+		return name
+	}
+
+	return ""
 }
