@@ -1,12 +1,12 @@
 import { useCallback, useState } from 'react';
-import type { Connection } from '@xyflow/react';
+import type { Connection } from 'reactflow';
 
 import {
   GraphApiError,
   createGraphEdge,
   type CreateGraphEdgeRequest,
   type GraphEdgeRecord,
-} from '../services/api';
+} from '@/services/api';
 
 export interface OverlayPosition {
   x: number;

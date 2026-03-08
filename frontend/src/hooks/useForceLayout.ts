@@ -9,7 +9,7 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force';
 import type { Dispatch, SetStateAction } from 'react';
-import type { Edge, Node, OnNodeDrag, XYPosition } from '@xyflow/react';
+import type { Edge, Node, NodeDragHandler, XYPosition } from 'reactflow';
 
 export interface GraphNodeVO {
   id: string;
@@ -83,9 +83,9 @@ export interface UseForceLayoutOptions {
 }
 
 export interface UseForceLayoutResult {
-  onNodeDragStart: OnNodeDrag<MindMapNode>;
-  onNodeDrag: OnNodeDrag<MindMapNode>;
-  onNodeDragStop: OnNodeDrag<MindMapNode>;
+  onNodeDragStart: NodeDragHandler;
+  onNodeDrag: NodeDragHandler;
+  onNodeDragStop: NodeDragHandler;
   restartLayout: (alpha?: number) => void;
 }
 
@@ -322,22 +322,23 @@ export function useForceLayout({
     }
   }, []);
 
-  const onNodeDragStart = useCallback<OnNodeDrag<MindMapNode>>((_, node) => {
-    pinNode(node);
+  const onNodeDragStart = useCallback<NodeDragHandler>((_, node) => {
+    pinNode(node as MindMapNode);
   }, [pinNode]);
 
-  const onNodeDrag = useCallback<OnNodeDrag<MindMapNode>>((_, node) => {
-    pinNode(node);
+  const onNodeDrag = useCallback<NodeDragHandler>((_, node) => {
+    pinNode(node as MindMapNode);
   }, [pinNode]);
 
-  const onNodeDragStop = useCallback<OnNodeDrag<MindMapNode>>((_, node) => {
-    const datum = nodeLookupRef.current.get(node.id);
+  const onNodeDragStop = useCallback<NodeDragHandler>((_, node) => {
+    const positionedNode = node as MindMapNode;
+    const datum = nodeLookupRef.current.get(positionedNode.id);
     if (!datum) {
       return;
     }
 
-    datum.x = node.position.x;
-    datum.y = node.position.y;
+    datum.x = positionedNode.position.x;
+    datum.y = positionedNode.position.y;
     datum.fx = null;
     datum.fy = null;
 

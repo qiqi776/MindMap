@@ -5,9 +5,9 @@ import {
   getBezierPath,
   type Edge,
   type EdgeProps,
-} from '@xyflow/react';
+} from 'reactflow';
 
-import type { MindMapEdgeData } from '../hooks/useForceLayout';
+import type { MindMapEdgeData } from '@/hooks/useForceLayout';
 
 export interface SemanticEdgeData extends MindMapEdgeData {
   parallelCount?: number;
@@ -29,7 +29,7 @@ function compareNodeIDs(leftNodeID: string, rightNodeID: string): number {
   return leftNodeID < rightNodeID ? -1 : 1;
 }
 
-export const SemanticEdge = memo(function SemanticEdge(props: EdgeProps<SemanticMindMapEdge>): ReactElement {
+export const SemanticEdge = memo(function SemanticEdge(props: EdgeProps<SemanticEdgeData>): ReactElement {
   const {
     id,
     source,

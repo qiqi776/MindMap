@@ -7,9 +7,10 @@ import {
   useEdgesState,
   useNodesState,
   type EdgeChange,
+  type Edge,
   type Node,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
+} from 'reactflow';
+import 'reactflow/dist/style.css';
 import {
   useCallback,
   useEffect,
@@ -28,10 +29,10 @@ import {
   type GraphVO,
   type MindMapNode,
   type MindMapNodeData,
-} from '../hooks/useForceLayout';
-import { useConnectionCreation } from '../hooks/useConnectionCreation';
-import type { GraphEdgeRecord } from '../services/api';
-import { SemanticEdge, type SemanticEdgeData, type SemanticMindMapEdge } from './SemanticEdge';
+} from '@/hooks/useForceLayout';
+import { useConnectionCreation } from '@/hooks/useConnectionCreation';
+import type { GraphEdgeRecord } from '@/services/api';
+import { SemanticEdge, type SemanticEdgeData, type SemanticMindMapEdge } from '@/components/SemanticEdge';
 
 interface GraphCanvasProps {
   graph: GraphVO;
@@ -104,7 +105,7 @@ function toFlowNode(node: GraphNodeVO, index: number, total: number): MindMapNod
     },
     position: readNodeSeed(node, index, total),
     style: buildNodeStyle(node.type),
-  } satisfies MindMapNode;
+  };
 }
 
 function toFlowEdge(edge: EdgeLike): SemanticMindMapEdge {
@@ -117,13 +118,13 @@ function toFlowEdge(edge: EdgeLike): SemanticMindMapEdge {
       relationType: edge.relation_type,
       weight: edge.weight,
       raw: edge,
-    } satisfies SemanticEdgeData,
+    },
     animated: false,
     style: {
       strokeWidth: Math.min(Math.max(edge.weight, 1), 4),
       stroke: '#64748b',
     },
-  } satisfies SemanticMindMapEdge;
+  };
 }
 
 function buildPairKey(sourceNodeID: string, targetNodeID: string): string {
@@ -188,7 +189,9 @@ function enrichParallelEdgeData(edges: SemanticMindMapEdge[]): SemanticMindMapEd
 
 function buildFlowTopology(graph: GraphVO): { nodes: MindMapNode[]; edges: SemanticMindMapEdge[] } {
   const sourceNodes = graph.nodes ?? [];
-  const mappedNodes = sourceNodes.filter((node) => Boolean(node.id)).map((node, index) => toFlowNode(node, index, sourceNodes.length));
+  const mappedNodes = sourceNodes
+    .filter((node) => Boolean(node.id))
+    .map((node, index) => toFlowNode(node, index, sourceNodes.length));
   const nodeIDs = new Set(mappedNodes.map((node) => node.id));
 
   const mappedEdges = (graph.edges ?? [])
@@ -202,10 +205,10 @@ function buildFlowTopology(graph: GraphVO): { nodes: MindMapNode[]; edges: Seman
 }
 
 function useViewportSize<T extends HTMLElement>(): {
-  containerRef: RefObject<T | null>;
+  containerRef: RefObject<T>;
   viewportSize: ViewportSize;
 } {
-  const containerRef = useRef<T | null>(null);
+  const containerRef = useRef<T>(null);
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 0, height: 0 });
 
   useLayoutEffect(() => {
@@ -311,7 +314,7 @@ function RelationInputPopover(props: {
     onCancel,
     onSubmit,
   } = props;
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isSubmitting) {
@@ -419,8 +422,8 @@ export function GraphCanvas({ graph, className }: GraphCanvasProps): ReactElemen
   const topology = useMemo(() => buildFlowTopology(graph), [graph]);
   const [topologyNodes, setTopologyNodes] = useState<MindMapNode[]>(topology.nodes);
   const [topologyEdges, setTopologyEdges] = useState<SemanticMindMapEdge[]>(topology.edges);
-  const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNode>(topology.nodes);
-  const [edges, setEdges] = useEdgesState<SemanticMindMapEdge>(topology.edges);
+  const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNodeData>(topology.nodes);
+  const [edges, setEdges] = useEdgesState<SemanticEdgeData>(topology.edges);
 
   useEffect(() => {
     setTopologyNodes(topology.nodes);
@@ -464,15 +467,13 @@ export function GraphCanvas({ graph, className }: GraphCanvasProps): ReactElemen
     restartLayout,
   });
 
-  const edgeTypes = useMemo(() => {
-    return {
-      semantic: SemanticEdge,
-    };
-  }, []);
+  const edgeTypes = useMemo(() => ({
+    semantic: SemanticEdge,
+  }), []);
 
-  const handleEdgeChanges = useCallback((changes: EdgeChange<SemanticMindMapEdge>[]) => {
-    setEdges((currentEdges) => enrichParallelEdgeData(applyEdgeChanges(changes, currentEdges)));
-    setTopologyEdges((currentEdges) => enrichParallelEdgeData(applyEdgeChanges(changes, currentEdges)));
+  const handleEdgeChanges = useCallback((changes: EdgeChange[]) => {
+    setEdges((currentEdges) => enrichParallelEdgeData(applyEdgeChanges(changes, currentEdges as Edge<SemanticEdgeData>[]) as SemanticMindMapEdge[]));
+    setTopologyEdges((currentEdges) => enrichParallelEdgeData(applyEdgeChanges(changes, currentEdges) as SemanticMindMapEdge[]));
   }, [setEdges]);
 
   useEffect(() => {
@@ -498,7 +499,7 @@ export function GraphCanvas({ graph, className }: GraphCanvasProps): ReactElemen
           onSubmit={confirmConnection}
         />
       ) : null}
-      <ReactFlow<MindMapNode, SemanticMindMapEdge>
+      <ReactFlow
         nodes={nodes}
         edges={edges}
         edgeTypes={edgeTypes}
