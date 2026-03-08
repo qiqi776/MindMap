@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Connection } from '@xyflow/react';
 
 import {
@@ -78,8 +78,7 @@ export function useConnectionCreation({
   restartLayout,
   restartAlpha = 0.65,
 }: UseConnectionCreationOptions): UseConnectionCreationResult {
-  const initialPosition = useMemo(getOverlayPosition, [getOverlayPosition]);
-  const [relationPopover, setRelationPopover] = useState<RelationPopoverState>(() => buildInitialState(initialPosition));
+  const [relationPopover, setRelationPopover] = useState<RelationPopoverState>(() => buildInitialState(getOverlayPosition()));
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const dismissToast = useCallback(() => {
@@ -95,6 +94,7 @@ export function useConnectionCreation({
       return;
     }
 
+    setToast(null);
     setRelationPopover({
       isConnecting: true,
       isSubmitting: false,
@@ -149,6 +149,7 @@ export function useConnectionCreation({
 
     try {
       const persistedEdge = await createGraphEdge(requestPayload);
+      setToast(null);
       onEdgeCreated(persistedEdge);
       restartLayout(restartAlpha);
       setRelationPopover(buildInitialState(getOverlayPosition()));

@@ -420,7 +420,7 @@ export function GraphCanvas({ graph, className }: GraphCanvasProps): ReactElemen
   const [topologyNodes, setTopologyNodes] = useState<MindMapNode[]>(topology.nodes);
   const [topologyEdges, setTopologyEdges] = useState<SemanticMindMapEdge[]>(topology.edges);
   const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNode>(topology.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<SemanticMindMapEdge>(topology.edges);
+  const [edges, setEdges] = useEdgesState<SemanticMindMapEdge>(topology.edges);
 
   useEffect(() => {
     setTopologyNodes(topology.nodes);
@@ -471,9 +471,9 @@ export function GraphCanvas({ graph, className }: GraphCanvasProps): ReactElemen
   }, []);
 
   const handleEdgeChanges = useCallback((changes: EdgeChange<SemanticMindMapEdge>[]) => {
-    onEdgesChange(changes);
+    setEdges((currentEdges) => enrichParallelEdgeData(applyEdgeChanges(changes, currentEdges)));
     setTopologyEdges((currentEdges) => enrichParallelEdgeData(applyEdgeChanges(changes, currentEdges)));
-  }, [onEdgesChange]);
+  }, [setEdges]);
 
   useEffect(() => {
     cancelConnection();
