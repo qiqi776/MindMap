@@ -7,6 +7,7 @@ import {
   type CreateGraphEdgeRequest,
   type GraphEdgeRecord,
 } from '@/services/api';
+import { useGraphStore } from '@/store/useGraphStore';
 
 export interface OverlayPosition {
   x: number;
@@ -28,11 +29,6 @@ export interface RelationPopoverState {
   pendingConnection: PendingConnection | null;
 }
 
-export interface ToastState {
-  intent: 'error' | 'success';
-  message: string;
-}
-
 export interface UseConnectionCreationOptions {
   getOverlayPosition: () => OverlayPosition;
   onEdgeCreated: (edge: GraphEdgeRecord) => void;
@@ -42,12 +38,10 @@ export interface UseConnectionCreationOptions {
 
 export interface UseConnectionCreationResult {
   relationPopover: RelationPopoverState;
-  toast: ToastState | null;
   openConnectionPopover: (connection: Connection) => void;
   updateRelationType: (relationType: string) => void;
   confirmConnection: () => Promise<void>;
   cancelConnection: () => void;
-  dismissToast: () => void;
 }
 
 function createClientUUID(): string {
@@ -79,11 +73,6 @@ export function useConnectionCreation({
   restartAlpha = 0.65,
 }: UseConnectionCreationOptions): UseConnectionCreationResult {
   const [relationPopover, setRelationPopover] = useState<RelationPopoverState>(() => buildInitialState(getOverlayPosition()));
-  const [toast, setToast] = useState<ToastState | null>(null);
-
-  const dismissToast = useCallback(() => {
-    setToast(null);
-  }, []);
 
   const cancelConnection = useCallback(() => {
     setRelationPopover(buildInitialState(getOverlayPosition()));
@@ -94,7 +83,7 @@ export function useConnectionCreation({
       return;
     }
 
-    setToast(null);
+    useGraphStore.getState().setError(null);
     setRelationPopover({
       isConnecting: true,
       isSubmitting: false,
@@ -125,13 +114,12 @@ export function useConnectionCreation({
     }
 
     if (trimmedRelationType.length === 0) {
-      setToast({
-        intent: 'error',
-        message: 'relation_type is required',
-      });
+      useGraphStore.getState().setError('relation_type is required');
       return;
     }
 
+    useGraphStore.getState().setLoading(true);
+    useGraphStore.getState().setError(null);
     setRelationPopover((currentState) => ({
       ...currentState,
       isSubmitting: true,
@@ -149,27 +137,23 @@ export function useConnectionCreation({
 
     try {
       const persistedEdge = await createGraphEdge(requestPayload);
-      setToast(null);
       onEdgeCreated(persistedEdge);
       restartLayout(restartAlpha);
       setRelationPopover(buildInitialState(getOverlayPosition()));
     } catch (error) {
       const message = error instanceof GraphApiError ? error.message : 'Failed to create edge';
-      setToast({
-        intent: 'error',
-        message,
-      });
+      useGraphStore.getState().setError(message);
       setRelationPopover(buildInitialState(getOverlayPosition()));
+    } finally {
+      useGraphStore.getState().setLoading(false);
     }
   }, [getOverlayPosition, onEdgeCreated, relationPopover.pendingConnection, relationPopover.relationType, restartAlpha, restartLayout]);
 
   return {
     relationPopover,
-    toast,
     openConnectionPopover,
     updateRelationType,
     confirmConnection,
     cancelConnection,
-    dismissToast,
   };
 }

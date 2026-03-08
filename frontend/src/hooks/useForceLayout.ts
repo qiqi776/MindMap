@@ -11,6 +11,8 @@ import {
 import type { Dispatch, SetStateAction } from 'react';
 import type { Edge, Node, NodeDragHandler, XYPosition } from 'reactflow';
 
+import { useGraphStore } from '@/store/useGraphStore';
+
 export interface GraphNodeVO {
   id: string;
   type: string;
@@ -161,6 +163,8 @@ export function useForceLayout({
   const rafRef = useRef<number | null>(null);
 
   const commitNodePositions = useCallback(() => {
+    const nodePositionUpdates: Array<{ nodeId: string; x: number; y: number }> = [];
+
     setNodes((currentNodes) => {
       let hasMutation = false;
 
@@ -177,6 +181,12 @@ export function useForceLayout({
         }
 
         hasMutation = true;
+        nodePositionUpdates.push({
+          nodeId: node.id,
+          x: nextX,
+          y: nextY,
+        });
+
         return {
           ...node,
           position: { x: nextX, y: nextY },
@@ -185,6 +195,10 @@ export function useForceLayout({
 
       return hasMutation ? nextNodes : currentNodes;
     });
+
+    if (nodePositionUpdates.length > 0) {
+      useGraphStore.getState().updateNodePositions(nodePositionUpdates);
+    }
   }, [setNodes]);
 
   const restartLayout = useCallback((alpha = 0.6) => {
@@ -341,6 +355,8 @@ export function useForceLayout({
     datum.y = positionedNode.position.y;
     datum.fx = null;
     datum.fy = null;
+
+    useGraphStore.getState().updateNodePosition(positionedNode.id, positionedNode.position.x, positionedNode.position.y);
 
     const simulation = simulationRef.current;
     if (simulation) {

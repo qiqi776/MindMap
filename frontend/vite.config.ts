@@ -9,4 +9,14 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'graph-vendor': ['axios', 'd3-force', 'lucide-react', 'reactflow', 'zustand'],
+        },
+      },
+    },
+  },
 });

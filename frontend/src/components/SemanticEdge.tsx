@@ -18,8 +18,6 @@ export interface SemanticEdgeData extends MindMapEdgeData {
 export type SemanticMindMapEdge = Edge<SemanticEdgeData>;
 
 const DEFAULT_PARALLEL_SPACING = 24;
-const LABEL_WIDTH = 160;
-const LABEL_HEIGHT = 32;
 
 function compareNodeIDs(leftNodeID: string, rightNodeID: string): number {
   if (leftNodeID === rightNodeID) {
@@ -42,7 +40,6 @@ export const SemanticEdge = memo(function SemanticEdge(props: EdgeProps<Semantic
     targetPosition,
     markerEnd,
     data,
-    style,
   } = props;
 
   const parallelIndex = data?.parallelIndex ?? 0;
@@ -91,26 +88,12 @@ export const SemanticEdge = memo(function SemanticEdge(props: EdgeProps<Semantic
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} />
       <EdgeLabelRenderer>
         <div
+          className="semantic-edge-label"
           style={{
-            position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            pointerEvents: 'none',
-            minWidth: LABEL_WIDTH,
-            height: LABEL_HEIGHT,
-            padding: '6px 10px',
-            borderRadius: 999,
-            border: '1px solid #cbd5e1',
-            background: 'rgba(255, 255, 255, 0.96)',
-            color: '#0f172a',
-            fontSize: 12,
-            fontWeight: 600,
-            lineHeight: '20px',
-            textAlign: 'center',
-            boxShadow: '0 6px 20px rgba(15, 23, 42, 0.12)',
-            whiteSpace: 'nowrap',
           }}
         >
           {relationType}

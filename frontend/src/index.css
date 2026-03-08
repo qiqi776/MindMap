@@ -14,3 +14,106 @@ body {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: #0f172a;
 }
+
+@layer components {
+  .graph-canvas {
+    @apply relative h-full w-full min-h-[560px] bg-slate-50;
+  }
+
+  .graph-focus-badge {
+    @apply absolute left-4 top-4 z-10 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700 shadow-sm backdrop-blur;
+  }
+
+  .graph-loading-mask {
+    @apply absolute inset-0 z-20 flex items-center justify-center bg-slate-900/10 text-sm font-semibold text-slate-700 backdrop-blur-[1px];
+  }
+
+  .graph-toast {
+    @apply absolute left-1/2 top-6 z-30 min-w-80 max-w-[30rem] -translate-x-1/2 rounded-xl border px-4 py-3 shadow-xl;
+  }
+
+  .graph-toast--error {
+    @apply border-red-200 bg-red-50 text-red-800;
+  }
+
+  .graph-toast--success {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-800;
+  }
+
+  .graph-toast__content {
+    @apply flex items-center gap-3;
+  }
+
+  .graph-toast__message {
+    @apply flex-1 text-sm font-semibold;
+  }
+
+  .graph-toast__close {
+    @apply cursor-pointer border-none bg-transparent text-sm font-bold text-inherit;
+  }
+
+  .graph-popover-overlay {
+    @apply absolute inset-0 z-20 bg-slate-900/10;
+  }
+
+  .graph-popover-panel {
+    @apply absolute w-[22.5rem] rounded-2xl border border-slate-300 bg-white p-5 shadow-2xl;
+  }
+
+  .graph-popover__title {
+    @apply mb-2 text-[15px] font-bold text-slate-900;
+  }
+
+  .graph-popover__subtitle {
+    @apply mb-4 text-xs text-slate-600;
+  }
+
+  .graph-form-label {
+    @apply mb-2 block text-xs font-semibold text-slate-700;
+  }
+
+  .graph-input {
+    @apply w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-slate-100;
+  }
+
+  .graph-action-row {
+    @apply mt-[18px] flex justify-end gap-3;
+  }
+
+  .graph-btn-secondary {
+    @apply cursor-pointer rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100;
+  }
+
+  .graph-btn-primary {
+    @apply cursor-pointer rounded-xl border border-blue-600 bg-blue-600 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-blue-200 disabled:bg-blue-200;
+  }
+
+  .semantic-edge-label {
+    @apply pointer-events-none absolute h-8 min-w-40 whitespace-nowrap rounded-full border border-slate-300 bg-white/95 px-2.5 py-1.5 text-center text-xs font-semibold leading-5 text-slate-900 shadow-lg;
+  }
+
+  .graph-node {
+    @apply min-w-[180px] rounded-xl border px-3 py-3 shadow-md;
+  }
+
+  .graph-node--text {
+    @apply border-blue-600 bg-blue-50;
+  }
+
+  .graph-node--person {
+    @apply border-violet-600 bg-violet-50;
+  }
+
+  .graph-node--image {
+    @apply border-emerald-600 bg-emerald-50;
+  }
+
+  .graph-node--default {
+    @apply border-slate-600 bg-white;
+  }
+}
+
+.react-flow__edge.semantic-edge .react-flow__edge-path {
+  stroke: rgb(100 116 139);
+  stroke-width: 1.5px;
+}
