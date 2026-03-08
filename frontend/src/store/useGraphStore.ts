@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
-import type { MindMapNode } from '@/hooks/useForceLayout';
-import { enrichParallelEdgeData } from '@/lib/graphViewModel';
+import type { GraphVO, MindMapNode } from '@/hooks/useForceLayout';
+import { buildFlowTopology, enrichParallelEdgeData } from '@/lib/graphViewModel';
+import { fetchFocusGraph, GraphApiError } from '@/services/api';
 
 export interface NodePositionUpdate {
   nodeId: string;
@@ -26,6 +27,7 @@ export interface GraphStoreActions {
   setFocusNode: (nodeId: string | null) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
+  fetchFocusGraph: (focusNodeId: string, depth?: number) => Promise<GraphVO>;
 }
 
 export type GraphStore = GraphStoreState & GraphStoreActions;
@@ -128,5 +130,26 @@ export const useGraphStore = create<GraphStore>((set) => ({
 
   setError: (error) => {
     set({ error });
+  },
+
+  fetchFocusGraph: async (focusNodeId, depth = 1) => {
+    set({ isLoading: true, error: null, focusNodeId });
+
+    try {
+      const graph = await fetchFocusGraph(focusNodeId, depth);
+      const topology = buildFlowTopology(graph);
+      set({
+        nodes: topology.nodes,
+        edges: topology.edges,
+        isLoading: false,
+        error: null,
+        focusNodeId,
+      });
+      return graph;
+    } catch (error) {
+      const message = error instanceof GraphApiError ? error.message : 'Failed to fetch focus graph';
+      set({ isLoading: false, error: message });
+      throw error;
+    }
   },
 }));

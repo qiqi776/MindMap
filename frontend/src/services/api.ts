@@ -4,6 +4,16 @@ export interface ApiEnvelope<TData> {
   data: TData;
 }
 
+export interface GraphNodeRecord {
+  id: string;
+  type: string;
+  content: string;
+  properties?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+}
+
 export interface GraphEdgeRecord {
   id: string;
   source_id: string;
@@ -14,6 +24,11 @@ export interface GraphEdgeRecord {
   created_at?: string;
   updated_at?: string;
   deleted_at?: string | null;
+}
+
+export interface FocusGraphRecord {
+  nodes: GraphNodeRecord[];
+  edges: GraphEdgeRecord[];
 }
 
 export interface CreateGraphEdgeRequest {
@@ -50,6 +65,33 @@ async function readEnvelope<TData>(response: Response): Promise<ApiEnvelope<TDat
   }
 
   return JSON.parse(responseText) as ApiEnvelope<TData>;
+}
+
+export async function fetchFocusGraph(
+  focusNodeId: string,
+  depth = 1,
+  options: ApiRequestOptions = {},
+): Promise<FocusGraphRecord> {
+  const search = new URLSearchParams({ depth: String(depth) });
+  const response = await fetch(`${DEFAULT_API_BASE_URL}/graph/${focusNodeId}?${search.toString()}`, {
+    method: 'GET',
+    signal: options.signal,
+  });
+
+  const envelope = await readEnvelope<FocusGraphRecord | null>(response);
+  if (!response.ok) {
+    throw new GraphApiError(
+      envelope?.message ?? 'Request failed while fetching graph',
+      response.status,
+      envelope?.code ?? response.status,
+    );
+  }
+
+  if (!envelope?.data) {
+    throw new GraphApiError('Graph response payload is empty', response.status, envelope?.code ?? response.status);
+  }
+
+  return envelope.data;
 }
 
 export async function createGraphEdge(
