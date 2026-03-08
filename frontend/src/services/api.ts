@@ -57,6 +57,7 @@ export class GraphApiError extends Error {
 }
 
 const DEFAULT_API_BASE_URL = '/api/v1';
+const REQUEST_TIMEOUT_MS = 5000;
 
 async function readEnvelope<TData>(response: Response): Promise<ApiEnvelope<TData> | null> {
   const responseText = await response.text();
@@ -67,62 +68,123 @@ async function readEnvelope<TData>(response: Response): Promise<ApiEnvelope<TDat
   return JSON.parse(responseText) as ApiEnvelope<TData>;
 }
 
+function createRequestSignal(options: ApiRequestOptions): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  didTimeout: () => boolean;
+} {
+  const controller = new AbortController();
+  let timedOut = false;
+  let abortListener: (() => void) | null = null;
+
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+
+  if (options.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      abortListener = () => {
+        controller.abort();
+      };
+      options.signal.addEventListener('abort', abortListener, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeoutId);
+      if (options.signal && abortListener) {
+        options.signal.removeEventListener('abort', abortListener);
+      }
+    },
+    didTimeout: () => timedOut,
+  };
+}
+
 export async function fetchFocusGraph(
   focusNodeId: string,
   depth = 1,
   options: ApiRequestOptions = {},
 ): Promise<FocusGraphRecord> {
   const search = new URLSearchParams({ depth: String(depth) });
-  const response = await fetch(`${DEFAULT_API_BASE_URL}/graph/${focusNodeId}?${search.toString()}`, {
-    method: 'GET',
-    signal: options.signal,
-  });
+  const requestSignal = createRequestSignal(options);
 
-  const envelope = await readEnvelope<FocusGraphRecord | null>(response);
-  if (!response.ok) {
-    throw new GraphApiError(
-      envelope?.message ?? 'Request failed while fetching graph',
-      response.status,
-      envelope?.code ?? response.status,
-    );
+  try {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}/graph/${focusNodeId}?${search.toString()}`, {
+      method: 'GET',
+      signal: requestSignal.signal,
+    });
+
+    const envelope = await readEnvelope<FocusGraphRecord | null>(response);
+    if (!response.ok) {
+      throw new GraphApiError(
+        envelope?.message ?? 'Request failed while fetching graph',
+        response.status,
+        envelope?.code ?? response.status,
+      );
+    }
+
+    if (!envelope?.data) {
+      throw new GraphApiError('Graph response payload is empty', response.status, envelope?.code ?? response.status);
+    }
+
+    return envelope.data;
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
+    }
+
+    throw error;
+  } finally {
+    requestSignal.cleanup();
   }
-
-  if (!envelope?.data) {
-    throw new GraphApiError('Graph response payload is empty', response.status, envelope?.code ?? response.status);
-  }
-
-  return envelope.data;
 }
 
 export async function createGraphEdge(
   payload: CreateGraphEdgeRequest,
   options: ApiRequestOptions = {},
 ): Promise<GraphEdgeRecord> {
-  const response = await fetch(`${DEFAULT_API_BASE_URL}/edges`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      ...payload,
-      weight: payload.weight ?? 1,
-      properties: payload.properties ?? {},
-    }),
-    signal: options.signal,
-  });
+  const requestSignal = createRequestSignal(options);
 
-  const envelope = await readEnvelope<GraphEdgeRecord | null>(response);
-  if (!response.ok) {
-    throw new GraphApiError(
-      envelope?.message ?? 'Request failed while creating edge',
-      response.status,
-      envelope?.code ?? response.status,
-    );
+  try {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}/edges`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...payload,
+        weight: payload.weight ?? 1,
+        properties: payload.properties ?? {},
+      }),
+      signal: requestSignal.signal,
+    });
+
+    const envelope = await readEnvelope<GraphEdgeRecord | null>(response);
+    if (!response.ok) {
+      throw new GraphApiError(
+        envelope?.message ?? 'Request failed while creating edge',
+        response.status,
+        envelope?.code ?? response.status,
+      );
+    }
+
+    if (!envelope?.data) {
+      throw new GraphApiError('Edge response payload is empty', response.status, envelope?.code ?? response.status);
+    }
+
+    return envelope.data;
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
+    }
+
+    throw error;
+  } finally {
+    requestSignal.cleanup();
   }
-
-  if (!envelope?.data) {
-    throw new GraphApiError('Edge response payload is empty', response.status, envelope?.code ?? response.status);
-  }
-
-  return envelope.data;
 }

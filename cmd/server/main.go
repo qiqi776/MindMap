@@ -14,25 +14,33 @@ import (
 	httpapi "treemindmap/internal/transport/httpapi"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
 const (
+	defaultDBDSN      = "root:123456@tcp(127.0.0.1:3306)/treemindmap?charset=utf8mb4&parseTime=True&loc=Local"
 	defaultHTTPPort   = "8080"
 	shutdownTimeout   = 10 * time.Second
 	connMaxLifetime   = time.Hour
 	maxIdleConnsCount = 10
 	maxOpenConnsCount = 100
 	maxQueryDepth     = 6
+	envFilePath       = ".env"
 )
 
 func main() {
 	logger := log.New(os.Stdout, "treemindmap ", log.LstdFlags|log.LUTC)
 
+	if err := godotenv.Load(envFilePath); err != nil {
+		logger.Printf("could not load %s: %v", envFilePath, err)
+	}
+
 	databaseDSN := os.Getenv("DB_DSN")
 	if databaseDSN == "" {
-		logger.Fatalf("DB_DSN is required")
+		databaseDSN = defaultDBDSN
+		logger.Printf("DB_DSN is empty, using default local DSN")
 	}
 
 	httpPort := os.Getenv("PORT")

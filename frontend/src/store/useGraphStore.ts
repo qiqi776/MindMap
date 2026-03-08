@@ -27,7 +27,7 @@ export interface GraphStoreActions {
   setFocusNode: (nodeId: string | null) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
-  fetchFocusGraph: (focusNodeId: string, depth?: number) => Promise<GraphVO>;
+  fetchFocusGraph: (focusNodeId: string, depth?: number, signal?: AbortSignal) => Promise<GraphVO>;
 }
 
 export type GraphStore = GraphStoreState & GraphStoreActions;
@@ -132,11 +132,11 @@ export const useGraphStore = create<GraphStore>((set) => ({
     set({ error });
   },
 
-  fetchFocusGraph: async (focusNodeId, depth = 1) => {
+  fetchFocusGraph: async (focusNodeId, depth = 1, signal) => {
     set({ isLoading: true, error: null, focusNodeId });
 
     try {
-      const graph = await fetchFocusGraph(focusNodeId, depth);
+      const graph = await fetchFocusGraph(focusNodeId, depth, { signal });
       const topology = buildFlowTopology(graph);
       set({
         nodes: topology.nodes,
@@ -147,6 +147,11 @@ export const useGraphStore = create<GraphStore>((set) => ({
       });
       return graph;
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        set({ isLoading: false });
+        throw error;
+      }
+
       const message = error instanceof GraphApiError ? error.message : 'Failed to fetch focus graph';
       set({ isLoading: false, error: message });
       throw error;
