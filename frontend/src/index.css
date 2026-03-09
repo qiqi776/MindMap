@@ -117,3 +117,28 @@ body {
   stroke: rgb(100 116 139);
   stroke-width: 1.5px;
 }
+
+@layer components {
+  .graph-node--selected {
+    @apply ring-2 ring-slate-900/15;
+  }
+
+  .mind-node__type {
+    @apply mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500;
+  }
+
+  .mind-node__content {
+    @apply whitespace-pre-wrap break-words text-sm font-semibold leading-5 text-slate-900;
+  }
+
+  .mind-node__editor {
+    @apply min-h-[56px] w-full resize-none rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-semibold leading-5 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200;
+  }
+}
+
+.mind-node__handle {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgb(148 163 184);
+  background: rgb(255 255 255);
+}

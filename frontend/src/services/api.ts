@@ -31,6 +31,13 @@ export interface FocusGraphRecord {
   edges: GraphEdgeRecord[];
 }
 
+export interface CreateGraphNodeRequest {
+  id: string;
+  type: string;
+  content: string;
+  properties?: Record<string, unknown>;
+}
+
 export interface CreateGraphEdgeRequest {
   id: string;
   source_id: string;
@@ -141,6 +148,50 @@ export async function fetchFocusGraph(
 
     if (!envelope?.data) {
       throw new GraphApiError('Graph response payload is empty', response.status, envelope?.code ?? response.status);
+    }
+
+    return envelope.data;
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
+    }
+
+    throw error;
+  } finally {
+    requestSignal.cleanup();
+  }
+}
+
+export async function createGraphNode(
+  payload: CreateGraphNodeRequest,
+  options: ApiRequestOptions = {},
+): Promise<GraphNodeRecord> {
+  const requestSignal = createAbortableRequestSignal(options);
+
+  try {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}/nodes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...payload,
+        properties: payload.properties ?? {},
+      }),
+      signal: requestSignal.signal,
+    });
+
+    const envelope = await readEnvelope<GraphNodeRecord | null>(response);
+    if (!response.ok) {
+      throw new GraphApiError(
+        envelope?.message ?? 'Request failed while creating node',
+        response.status,
+        envelope?.code ?? response.status,
+      );
+    }
+
+    if (!envelope?.data) {
+      throw new GraphApiError('Node response payload is empty', response.status, envelope?.code ?? response.status);
     }
 
     return envelope.data;

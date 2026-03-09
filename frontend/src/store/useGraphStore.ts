@@ -21,6 +21,7 @@ export interface GraphStoreState {
 
 export interface GraphStoreActions {
   setGraphData: (nodes: MindMapNode[], edges: SemanticMindMapEdge[]) => void;
+  addNode: (node: MindMapNode) => MindMapNode[];
   updateNodePosition: (nodeId: string, x: number, y: number) => void;
   updateNodePositions: (updates: NodePositionUpdate[]) => void;
   addSemanticEdge: (edge: SemanticMindMapEdge) => SemanticMindMapEdge[];
@@ -49,6 +50,21 @@ export const useGraphStore = create<GraphStore>((set) => ({
       nodes,
       edges: enrichParallelEdgeData(edges),
     });
+  },
+
+  addNode: (node) => {
+    let nextNodes: MindMapNode[] = [];
+
+    set((state) => {
+      const deduplicatedNodes = state.nodes.filter((currentNode) => currentNode.id !== node.id);
+      nextNodes = [...deduplicatedNodes, node];
+
+      return {
+        nodes: nextNodes,
+      };
+    });
+
+    return nextNodes;
   },
 
   updateNodePosition: (nodeId, x, y) => {

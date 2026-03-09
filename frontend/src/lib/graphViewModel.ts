@@ -48,7 +48,7 @@ export function buildNodeClass(entityType: string): Node<MindMapNodeData>['class
 export function toFlowNode(node: GraphNodeVO, index: number, total: number): MindMapNode {
   return {
     id: node.id,
-    type: 'default',
+    type: 'mind',
     data: {
       label: node.content,
       entityType: node.type,

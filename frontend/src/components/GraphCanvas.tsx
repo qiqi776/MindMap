@@ -28,8 +28,10 @@ import {
   type SetStateAction,
 } from 'react';
 
+import { MindNode } from '@/components/MindNode';
 import { SemanticEdge, type SemanticEdgeData, type SemanticMindMapEdge } from '@/components/SemanticEdge';
 import { useConnectionCreation } from '@/hooks/useConnectionCreation';
+import { setGraphShortcutRuntime, useGraphShortcuts } from '@/hooks/useGraphShortcuts';
 import {
   useForceLayout,
   type GraphVO,
@@ -217,6 +219,8 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   const setError = useGraphStore((state) => state.setError);
   const { setCenter } = useReactFlow();
 
+  useGraphShortcuts(focusNodeId);
+
   const { containerRef, viewportSize } = useViewportSize<HTMLDivElement>();
   const topology = useMemo(() => buildFlowTopology(graph), [graph]);
   const [layoutNodes, setLayoutNodes] = useState<MindMapNode[]>(topology.nodes);
@@ -304,6 +308,10 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     semantic: SemanticEdge,
   }), []);
 
+  const nodeTypes = useMemo(() => ({
+    mind: MindNode,
+  }), []);
+
   const commitMergedTopology = useCallback((nextNodes: MindMapNode[], nextEdges: SemanticMindMapEdge[]) => {
     nodesRef.current = nextNodes;
     edgesRef.current = nextEdges;
@@ -313,6 +321,19 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     setEdges(nextEdges);
     useGraphStore.getState().setGraphData(nextNodes, nextEdges);
   }, [setEdges, setNodes]);
+
+  useEffect(() => {
+    setGraphShortcutRuntime({
+      getNodes: () => nodesRef.current,
+      getEdges: () => edgesRef.current,
+      commitTopology: commitMergedTopology,
+      restartLayout,
+    });
+
+    return () => {
+      setGraphShortcutRuntime(null);
+    };
+  }, [commitMergedTopology, restartLayout]);
 
   const panCameraToCenter = useCallback(() => {
     const centerX = viewportSize.width > 0 ? viewportSize.width / 2 : 0;
@@ -385,6 +406,11 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   }, [setEdges]);
 
   const handleNodeClick = useCallback<NodeMouseHandler>((_, node: Node) => {
+    if (node.id === focusNodeId) {
+      useGraphStore.getState().setFocusNode(node.id);
+      return;
+    }
+
     const previousFocusNodeId = useGraphStore.getState().focusNodeId;
     const focusAnchor: FocusNodeAnchor = {
       id: node.id,
@@ -413,7 +439,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
       debounceTimerRef.current = null;
       void performFocusSwitch(focusAnchor, controller, nextRequestSequence, previousFocusNodeId);
     }, FOCUS_SWITCH_DEBOUNCE_MS);
-  }, [cancelConnection, performFocusSwitch]);
+  }, [cancelConnection, focusNodeId, performFocusSwitch]);
 
   useEffect(() => {
     cancelConnection();
@@ -441,6 +467,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
         nodes={nodes}
         edges={edges}
         edgeTypes={edgeTypes}
+        nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={handleEdgeChanges}
         onNodeClick={handleNodeClick}
