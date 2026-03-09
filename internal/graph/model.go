@@ -102,15 +102,15 @@ type Node struct {
 
 	// CreatedAt records when the node was first persisted for audit,
 	// synchronization, and downstream replication workflows.
-	CreatedAt time.Time `gorm:"column:created_at;type:datetime(3);not null;autoCreateTime:milli"`
+	CreatedAt time.Time `gorm:"column:created_at;type:datetime;not null;autoCreateTime:milli"`
 
 	// UpdatedAt records the most recent successful mutation of the node and is
 	// used for audit trails and cache invalidation.
-	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime(3);not null;autoUpdateTime:milli"`
+	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime;not null;autoUpdateTime:milli"`
 
 	// DeletedAt marks the node as soft-deleted without removing the row so
 	// higher-level services can preserve auditability and recovery paths.
-	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime(3);index:idx_nodes_deleted_at"`
+	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime;index:idx_nodes_deleted_at"`
 }
 
 // TableName binds the Node model to the nodes table.
@@ -150,15 +150,15 @@ type Edge struct {
 
 	// CreatedAt records when the edge was first persisted for audit,
 	// synchronization, and downstream replication workflows.
-	CreatedAt time.Time `gorm:"column:created_at;type:datetime(3);not null;autoCreateTime:milli"`
+	CreatedAt time.Time `gorm:"column:created_at;type:datetime;not null;autoCreateTime:milli"`
 
 	// UpdatedAt records the most recent successful mutation of the edge and is
 	// used for audit trails and cache invalidation.
-	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime(3);not null;autoUpdateTime:milli"`
+	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime;not null;autoUpdateTime:milli"`
 
 	// DeletedAt marks the edge as soft-deleted without removing the row so
 	// higher-level services can preserve auditability and recovery paths.
-	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime(3);index:idx_edges_deleted_at"`
+	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime;index:idx_edges_deleted_at"`
 }
 
 // TableName binds the Edge model to the edges table.
