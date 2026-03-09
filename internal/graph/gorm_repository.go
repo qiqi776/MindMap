@@ -43,6 +43,55 @@ func (r *GormRepository) CreateEdge(ctx context.Context, edge *Edge) error {
 	return r.db.WithContext(ctx).Create(edge).Error
 }
 
+// DeleteNode performs transactional cascading cleanup for one node and all
+// incident edges to preserve referential integrity under concurrent writes.
+func (r *GormRepository) DeleteNode(ctx context.Context, nodeID string) error {
+	if r == nil || r.db == nil {
+		return fmt.Errorf("graph: nil database handle")
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).
+			Where("source_id = ? OR target_id = ?", nodeID, nodeID).
+			Delete(&Edge{}).Error; err != nil {
+			return err
+		}
+
+		result := tx.WithContext(ctx).
+			Where("id = ?", nodeID).
+			Delete(&Node{})
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+
+		return nil
+	})
+}
+
+// DeleteEdge removes one edge row by primary identifier.
+func (r *GormRepository) DeleteEdge(ctx context.Context, edgeID string) error {
+	if r == nil || r.db == nil {
+		return fmt.Errorf("graph: nil database handle")
+	}
+
+	result := r.db.WithContext(ctx).
+		Where("id = ?", edgeID).
+		Delete(&Edge{})
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
+
 func (r *GormRepository) GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*Node, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("graph: nil database handle")
@@ -143,6 +192,37 @@ func (r *GormRepository) GetAdjoiningNodes(ctx context.Context, nodeID string, r
 	}
 
 	return r.GetNodesByIDs(ctx, adjacentNodeIDs)
+}
+
+// UpdateNode applies a partial field update to one node row.
+func (r *GormRepository) UpdateNode(ctx context.Context, nodeID string, content *string, properties JSONDocument) error {
+	if r == nil || r.db == nil {
+		return fmt.Errorf("graph: nil database handle")
+	}
+
+	updateFields := make(map[string]any, 2)
+	if content != nil {
+		updateFields["content"] = *content
+	}
+	if len(properties) > 0 {
+		updateFields["properties"] = properties
+	}
+	if len(updateFields) == 0 {
+		return nil
+	}
+
+	result := r.db.WithContext(ctx).
+		Model(&Node{}).
+		Where("id = ? AND deleted_at IS NULL", nodeID).
+		Updates(updateFields)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
 }
 
 // UpdateNodePosition persists x and y coordinates into the node properties JSON document.

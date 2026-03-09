@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"time"
+
+	model "treemindmap/internal/graph"
 )
 
 // GraphVO is the HTTP response view returned to front-end graph clients.
@@ -74,6 +76,26 @@ type CreateEdgeRequest struct {
 	RelationType string         `json:"relation_type" binding:"required,max=64"`
 	Weight       *int           `json:"weight" binding:"omitempty,min=1"`
 	Properties   map[string]any `json:"properties"`
+}
+
+// UpdateNodeRequest binds the request body for partial node updates.
+type UpdateNodeRequest struct {
+	// Content carries the optional node content update. A nil value means the
+	// client did not provide the field in the JSON payload.
+	Content *string `json:"content"`
+
+	// Properties carries the replacement JSON property document for the node.
+	Properties model.JSONDocument `json:"properties"`
+}
+
+// NodeURIRequest binds the :node_id route parameter for node-scoped handlers.
+type NodeURIRequest struct {
+	NodeID string `uri:"node_id" binding:"required,uuid"`
+}
+
+// EdgeURIRequest binds the :edge_id route parameter for edge-scoped handlers.
+type EdgeURIRequest struct {
+	EdgeID string `uri:"edge_id" binding:"required,uuid"`
 }
 
 // UpdateNodePositionURIRequest binds the :node_id route parameter for updates.
