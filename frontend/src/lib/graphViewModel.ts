@@ -95,44 +95,37 @@ export function enrichParallelEdgeData(edges: SemanticMindMapEdge[]): SemanticMi
 
   for (const edge of edges) {
     const groupKey = buildPairKey(edge.source, edge.target);
-    const currentGroup = groupedEdges.get(groupKey) ?? [];
-    currentGroup.push(edge);
-    groupedEdges.set(groupKey, currentGroup);
+    const currentGroup = groupedEdges.get(groupKey);
+
+    if (currentGroup) {
+      currentGroup.push(edge);
+      continue;
+    }
+
+    groupedEdges.set(groupKey, [edge]);
   }
 
   const normalizedEdges: SemanticMindMapEdge[] = [];
 
   for (const edgeGroup of groupedEdges.values()) {
-    const sortedGroup = [...edgeGroup].sort((leftEdge, rightEdge) => {
-      if (leftEdge.source !== rightEdge.source) {
-        return leftEdge.source.localeCompare(rightEdge.source);
-      }
+    const midpointIndex = (edgeGroup.length - 1) / 2;
 
-      if (leftEdge.target !== rightEdge.target) {
-        return leftEdge.target.localeCompare(rightEdge.target);
-      }
+    edgeGroup.forEach((edge, index) => {
+      edge.className = 'semantic-edge';
+      edge.data = {
+        relationType: edge.data?.relationType ?? edge.label?.toString() ?? 'UNSPECIFIED',
+        weight: edge.data?.weight ?? 1,
+        raw: edge.data?.raw ?? buildFallbackRawEdge(edge),
+        parallelCount: edgeGroup.length,
+        parallelIndex: index - midpointIndex,
+        parallelSpacing: 24,
+      };
 
-      return leftEdge.id.localeCompare(rightEdge.id);
-    });
-
-    const midpointIndex = (sortedGroup.length - 1) / 2;
-    sortedGroup.forEach((edge, index) => {
-      normalizedEdges.push({
-        ...edge,
-        className: 'semantic-edge',
-        data: {
-          relationType: edge.data?.relationType ?? edge.label?.toString() ?? 'UNSPECIFIED',
-          weight: edge.data?.weight ?? 1,
-          raw: edge.data?.raw ?? buildFallbackRawEdge(edge),
-          parallelCount: sortedGroup.length,
-          parallelIndex: index - midpointIndex,
-          parallelSpacing: 24,
-        },
-      });
+      normalizedEdges.push(edge);
     });
   }
 
-  return normalizedEdges.sort((leftEdge, rightEdge) => leftEdge.id.localeCompare(rightEdge.id));
+  return normalizedEdges;
 }
 
 export function buildFlowTopology(graph: GraphVO): { nodes: MindMapNode[]; edges: SemanticMindMapEdge[] } {

@@ -2,8 +2,8 @@ import { create } from 'zustand';
 
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
 import type { GraphVO, MindMapNode } from '@/hooks/useForceLayout';
-import { buildFlowTopology, enrichParallelEdgeData } from '@/lib/graphViewModel';
-import { fetchFocusGraph, GraphApiError } from '@/services/api';
+import { enrichParallelEdgeData } from '@/lib/graphViewModel';
+import { fetchFocusGraph, GraphApiError, isRequestAbortError } from '@/services/api';
 
 export interface NodePositionUpdate {
   nodeId: string;
@@ -137,17 +137,14 @@ export const useGraphStore = create<GraphStore>((set) => ({
 
     try {
       const graph = await fetchFocusGraph(focusNodeId, depth, { signal });
-      const topology = buildFlowTopology(graph);
       set({
-        nodes: topology.nodes,
-        edges: topology.edges,
         isLoading: false,
         error: null,
         focusNodeId,
       });
       return graph;
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (isRequestAbortError(error)) {
         set({ isLoading: false });
         throw error;
       }

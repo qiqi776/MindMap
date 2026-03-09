@@ -44,6 +44,12 @@ export interface ApiRequestOptions {
   signal?: AbortSignal;
 }
 
+interface AbortableRequestSignal {
+  signal: AbortSignal;
+  cleanup: () => void;
+  didTimeout: () => boolean;
+}
+
 export class GraphApiError extends Error {
   readonly status: number;
   readonly code: number;
@@ -59,6 +65,10 @@ export class GraphApiError extends Error {
 const DEFAULT_API_BASE_URL = '/api/v1';
 const REQUEST_TIMEOUT_MS = 5000;
 
+export function isRequestAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 async function readEnvelope<TData>(response: Response): Promise<ApiEnvelope<TData> | null> {
   const responseText = await response.text();
   if (!responseText) {
@@ -68,11 +78,7 @@ async function readEnvelope<TData>(response: Response): Promise<ApiEnvelope<TDat
   return JSON.parse(responseText) as ApiEnvelope<TData>;
 }
 
-function createRequestSignal(options: ApiRequestOptions): {
-  signal: AbortSignal;
-  cleanup: () => void;
-  didTimeout: () => boolean;
-} {
+function createAbortableRequestSignal(options: ApiRequestOptions): AbortableRequestSignal {
   const controller = new AbortController();
   let timedOut = false;
   let abortListener: (() => void) | null = null;
@@ -111,7 +117,7 @@ export async function fetchFocusGraph(
   options: ApiRequestOptions = {},
 ): Promise<FocusGraphRecord> {
   const search = new URLSearchParams({ depth: String(depth) });
-  const requestSignal = createRequestSignal(options);
+  const requestSignal = createAbortableRequestSignal(options);
 
   try {
     const response = await fetch(`${DEFAULT_API_BASE_URL}/graph/${focusNodeId}?${search.toString()}`, {
@@ -148,7 +154,7 @@ export async function createGraphEdge(
   payload: CreateGraphEdgeRequest,
   options: ApiRequestOptions = {},
 ): Promise<GraphEdgeRecord> {
-  const requestSignal = createRequestSignal(options);
+  const requestSignal = createAbortableRequestSignal(options);
 
   try {
     const response = await fetch(`${DEFAULT_API_BASE_URL}/edges`, {

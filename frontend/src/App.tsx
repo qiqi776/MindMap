@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { GraphCanvas } from '@/components/GraphCanvas';
 import type { GraphVO } from '@/hooks/useForceLayout';
+import { isRequestAbortError } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
 
 const DEFAULT_FOCUS_NODE_ID = '11111111-1111-1111-1111-111111111111';
@@ -34,7 +35,7 @@ export default function App() {
       const nextGraph = await fetchFocusGraph(focusNodeId, DEFAULT_GRAPH_DEPTH, controller.signal);
       setGraph(nextGraph);
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (isRequestAbortError(error)) {
         return;
       }
     } finally {
@@ -50,7 +51,7 @@ export default function App() {
     return () => {
       requestControllerRef.current?.abort();
     };
-  }, []);
+  }, [loadGraph]);
 
   if (isLoading && graph.nodes.length === 0) {
     return (

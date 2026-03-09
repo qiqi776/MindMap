@@ -11,6 +11,7 @@ import {
 import type { Dispatch, SetStateAction } from 'react';
 import type { Edge, Node, NodeDragHandler, XYPosition } from 'reactflow';
 
+import type { FocusNodeAnchor } from '@/lib/graphUtils';
 import { useGraphStore } from '@/store/useGraphStore';
 
 export interface GraphNodeVO {
@@ -89,12 +90,14 @@ export interface UseForceLayoutResult {
   onNodeDrag: NodeDragHandler;
   onNodeDragStop: NodeDragHandler;
   restartLayout: (alpha?: number) => void;
+  scheduleFocusReheat: (focusNode: FocusNodeAnchor) => void;
 }
 
 const DEFAULT_CHARGE_STRENGTH = -900;
 const DEFAULT_ISOLATED_CHARGE_STRENGTH = -420;
 const DEFAULT_LINK_DISTANCE = 180;
 const DEFAULT_ALPHA_DECAY = 0.05;
+const FOCUS_LOCK_DURATION_MS = 800;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -161,6 +164,22 @@ export function useForceLayout({
   const simulationRef = useRef<Simulation<ForceNodeDatum, ForceLinkDatum> | null>(null);
   const nodeLookupRef = useRef<Map<string, ForceNodeDatum>>(new Map());
   const rafRef = useRef<number | null>(null);
+  const focusUnlockTimerRef = useRef<number | null>(null);
+  const pendingFocusRef = useRef<FocusNodeAnchor | null>(null);
+
+  const clearAnimationFrame = useCallback(() => {
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  const clearFocusUnlockTimer = useCallback(() => {
+    if (focusUnlockTimerRef.current !== null) {
+      window.clearTimeout(focusUnlockTimerRef.current);
+      focusUnlockTimerRef.current = null;
+    }
+  }, []);
 
   const commitNodePositions = useCallback(() => {
     const nodePositionUpdates: Array<{ nodeId: string; x: number; y: number }> = [];
@@ -210,42 +229,68 @@ export function useForceLayout({
     simulation.alpha(alpha).alphaTarget(0).restart();
   }, []);
 
+  const scheduleFocusReheat = useCallback((focusNode: FocusNodeAnchor) => {
+    pendingFocusRef.current = focusNode;
+  }, []);
+
   useEffect(() => {
-    if (rafRef.current !== null) {
-      window.cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
+    return () => {
+      clearAnimationFrame();
+      clearFocusUnlockTimer();
+      simulationRef.current?.on('tick', null);
+      simulationRef.current?.stop();
+      simulationRef.current = null;
+      nodeLookupRef.current = new Map();
+    };
+  }, [clearAnimationFrame, clearFocusUnlockTimer]);
 
-    simulationRef.current?.stop();
-    simulationRef.current = null;
-    nodeLookupRef.current = new Map();
-
+  useEffect(() => {
     if (topologyNodes.length === 0) {
+      clearAnimationFrame();
+      clearFocusUnlockTimer();
+      simulationRef.current?.stop();
+      simulationRef.current = null;
+      nodeLookupRef.current = new Map();
       setNodes([]);
-      return undefined;
+      return;
     }
 
     if (width <= 0 || height <= 0) {
-      return undefined;
+      return;
     }
 
+    const previousNodeLookup = nodeLookupRef.current;
     const degreeMap = buildDegreeMap(topologyNodes, topologyEdges);
-    const nodeDatums = topologyNodes.map((node, index) => {
-      const preferredPosition = readNodePosition(node) ?? seedNodePosition(index, topologyNodes.length, width, height);
+    const nextNodeDatums = topologyNodes.map((node, index) => {
+      const existingDatum = previousNodeLookup.get(node.id);
+      if (existingDatum) {
+        existingDatum.node = node;
 
+        if (!isFiniteNumber(existingDatum.x) || !isFiniteNumber(existingDatum.y)) {
+          const preferredPosition = readNodePosition(node) ?? seedNodePosition(index, topologyNodes.length, width, height);
+          existingDatum.x = preferredPosition.x;
+          existingDatum.y = preferredPosition.y;
+        }
+
+        return existingDatum;
+      }
+
+      const preferredPosition = readNodePosition(node) ?? seedNodePosition(index, topologyNodes.length, width, height);
       return {
         id: node.id,
         node,
         x: preferredPosition.x,
         y: preferredPosition.y,
+        vx: 0,
+        vy: 0,
       } satisfies ForceNodeDatum;
     });
 
-    const nodeLookup = new Map(nodeDatums.map((datum) => [datum.id, datum]));
-    nodeLookupRef.current = nodeLookup;
+    const nextNodeLookup = new Map(nextNodeDatums.map((datum) => [datum.id, datum]));
+    nodeLookupRef.current = nextNodeLookup;
 
     const linkDatums = topologyEdges
-      .filter((edge) => nodeLookup.has(edge.source) && nodeLookup.has(edge.target))
+      .filter((edge) => nextNodeLookup.has(edge.source) && nextNodeLookup.has(edge.target))
       .map((edge) => {
         return {
           id: edge.id,
@@ -256,59 +301,82 @@ export function useForceLayout({
         } satisfies ForceLinkDatum;
       });
 
-    const chargeForce = forceManyBody<ForceNodeDatum>()
-      // forceManyBody 使用负值电荷实现节点间排斥。绝对值越大，图中任意两点的最小间距越大，
-      // 可以降低高密度子图的重叠概率；但过大的排斥会显著增加边长方差，使局部团簇被拉散。
-      // 对孤立节点降低排斥强度，是为了避免低度数顶点仅因没有边约束就占据过大的画布面积。
-      .strength((datum) => {
-        const degree = degreeMap.get(datum.id) ?? 0;
-        return degree === 0 ? isolatedChargeStrength : chargeStrength;
-      });
+    const chargeForce = forceManyBody<ForceNodeDatum>().strength((datum) => {
+      const degree = degreeMap.get(datum.id) ?? 0;
+      return degree === 0 ? isolatedChargeStrength : chargeStrength;
+    });
 
     const linkForce = forceLink<ForceNodeDatum, ForceLinkDatum>(linkDatums)
       .id((datum) => datum.id)
-      // distance 定义相邻顶点的目标边长。较小值会压缩局部邻域，适合强调连通分量；
-      // 较大值会增加路径可读性并降低交叉边的视觉干扰，但会消耗更多画布空间。
       .distance(linkDistance);
 
-    const centerForce = forceCenter(width / 2, height / 2);
-    // forceCenter 只对整张图施加整体平移，不改变图的相对拓扑结构。
-    // 它用于抑制连通分量整体漂移到视口外侧，从而保持循环与交叉连线仍位于可交互区域内。
+    let simulation = simulationRef.current;
+    const isNewSimulation = simulation === null;
 
-    const simulation = forceSimulation(nodeDatums)
-      // alphaDecay 控制系统能量衰减速度。较高值可以在有限 tick 内结束计算，
-      // 避免前端在拓扑稳定后继续占用 CPU；当前值大约会在 100~150 次迭代内完成冷却。
+    if (simulation === null) {
+      simulation = forceSimulation<ForceNodeDatum, ForceLinkDatum>()
+        .on('tick', () => {
+          if (rafRef.current !== null) {
+            return;
+          }
+
+          rafRef.current = window.requestAnimationFrame(() => {
+            rafRef.current = null;
+            commitNodePositions();
+          });
+        });
+      simulationRef.current = simulation;
+    }
+
+    simulation
+      .nodes(nextNodeDatums)
       .alphaDecay(alphaDecay)
       .force('charge', chargeForce)
       .force('link', linkForce)
-      .force('center', centerForce)
-      .on('tick', () => {
-        if (rafRef.current !== null) {
-          return;
-        }
+      .force('center', forceCenter(width / 2, height / 2));
 
-        rafRef.current = window.requestAnimationFrame(() => {
-          rafRef.current = null;
-          commitNodePositions();
-        });
-      });
+    const pendingFocus = pendingFocusRef.current;
+    if (pendingFocus) {
+      const focusDatum = nextNodeLookup.get(pendingFocus.id);
+      pendingFocusRef.current = null;
 
-    simulationRef.current = simulation;
-    commitNodePositions();
-    simulation.alpha(0.9).restart();
+      if (focusDatum) {
+        const centerX = width / 2;
+        const centerY = height / 2;
 
-    return () => {
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
+        focusDatum.x = centerX;
+        focusDatum.y = centerY;
+        focusDatum.fx = centerX;
+        focusDatum.fy = centerY;
+        focusDatum.vx = 0;
+        focusDatum.vy = 0;
+
+        commitNodePositions();
+        clearFocusUnlockTimer();
+        simulation.alpha(1).alphaTarget(0).restart();
+
+        focusUnlockTimerRef.current = window.setTimeout(() => {
+          const latestFocusDatum = nodeLookupRef.current.get(pendingFocus.id);
+          if (!latestFocusDatum) {
+            return;
+          }
+
+          latestFocusDatum.fx = null;
+          latestFocusDatum.fy = null;
+          simulationRef.current?.alpha(0.24).alphaTarget(0).restart();
+        }, FOCUS_LOCK_DURATION_MS);
+
+        return;
       }
+    }
 
-      simulation.on('tick', null);
-      simulation.stop();
-    };
+    commitNodePositions();
+    simulation.alpha(isNewSimulation ? 0.9 : 0.45).alphaTarget(0).restart();
   }, [
     alphaDecay,
     chargeStrength,
+    clearAnimationFrame,
+    clearFocusUnlockTimer,
     commitNodePositions,
     height,
     isolatedChargeStrength,
@@ -369,5 +437,6 @@ export function useForceLayout({
     onNodeDrag,
     onNodeDragStop,
     restartLayout,
+    scheduleFocusReheat,
   };
 }
