@@ -24,6 +24,9 @@ export interface GraphStoreActions {
   updateNodePosition: (nodeId: string, x: number, y: number) => void;
   updateNodePositions: (updates: NodePositionUpdate[]) => void;
   addSemanticEdge: (edge: SemanticMindMapEdge) => SemanticMindMapEdge[];
+  removeNode: (nodeId: string) => void;
+  removeEdge: (edgeId: string) => void;
+  updateNodeContent: (nodeId: string, content: string) => void;
   setFocusNode: (nodeId: string | null) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
@@ -118,6 +121,56 @@ export const useGraphStore = create<GraphStore>((set) => ({
     });
 
     return nextEdges;
+  },
+
+  removeNode: (nodeId) => {
+    set((state) => {
+      const nextNodes = state.nodes.filter((node) => node.id !== nodeId);
+
+      // Filter incident edges to prevent dangling references and preserve
+      // referential integrity in the in-memory topology.
+      const nextEdges = enrichParallelEdgeData(
+        state.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+      );
+
+      return {
+        nodes: nextNodes,
+        edges: nextEdges,
+        focusNodeId: state.focusNodeId === nodeId ? null : state.focusNodeId,
+      };
+    });
+  },
+
+  removeEdge: (edgeId) => {
+    set((state) => ({
+      edges: enrichParallelEdgeData(state.edges.filter((edge) => edge.id !== edgeId)),
+    }));
+  },
+
+  updateNodeContent: (nodeId, content) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== nodeId) {
+          return node;
+        }
+
+        if (node.data.label === content && node.data.raw.content === content) {
+          return node;
+        }
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            label: content,
+            raw: {
+              ...node.data.raw,
+              content,
+            },
+          },
+        };
+      }),
+    }));
   },
 
   setFocusNode: (nodeId) => {

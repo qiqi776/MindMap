@@ -40,6 +40,11 @@ export interface CreateGraphEdgeRequest {
   properties?: Record<string, unknown>;
 }
 
+export interface UpdateGraphNodeRequest {
+  content?: string;
+  properties?: Record<string, unknown>;
+}
+
 export interface ApiRequestOptions {
   signal?: AbortSignal;
 }
@@ -184,6 +189,104 @@ export async function createGraphEdge(
     }
 
     return envelope.data;
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
+    }
+
+    throw error;
+  } finally {
+    requestSignal.cleanup();
+  }
+}
+
+export async function deleteGraphNode(
+  nodeId: string,
+  options: ApiRequestOptions = {},
+): Promise<void> {
+  const requestSignal = createAbortableRequestSignal(options);
+
+  try {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}/nodes/${nodeId}`, {
+      method: 'DELETE',
+      signal: requestSignal.signal,
+    });
+
+    const envelope = await readEnvelope<null>(response);
+    if (!response.ok) {
+      throw new GraphApiError(
+        envelope?.message ?? 'Request failed while deleting node',
+        response.status,
+        envelope?.code ?? response.status,
+      );
+    }
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
+    }
+
+    throw error;
+  } finally {
+    requestSignal.cleanup();
+  }
+}
+
+export async function deleteGraphEdge(
+  edgeId: string,
+  options: ApiRequestOptions = {},
+): Promise<void> {
+  const requestSignal = createAbortableRequestSignal(options);
+
+  try {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}/edges/${edgeId}`, {
+      method: 'DELETE',
+      signal: requestSignal.signal,
+    });
+
+    const envelope = await readEnvelope<null>(response);
+    if (!response.ok) {
+      throw new GraphApiError(
+        envelope?.message ?? 'Request failed while deleting edge',
+        response.status,
+        envelope?.code ?? response.status,
+      );
+    }
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
+    }
+
+    throw error;
+  } finally {
+    requestSignal.cleanup();
+  }
+}
+
+export async function updateGraphNode(
+  nodeId: string,
+  payload: UpdateGraphNodeRequest,
+  options: ApiRequestOptions = {},
+): Promise<void> {
+  const requestSignal = createAbortableRequestSignal(options);
+
+  try {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}/nodes/${nodeId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: requestSignal.signal,
+    });
+
+    const envelope = await readEnvelope<null>(response);
+    if (!response.ok) {
+      throw new GraphApiError(
+        envelope?.message ?? 'Request failed while updating node',
+        response.status,
+        envelope?.code ?? response.status,
+      );
+    }
   } catch (error) {
     if (requestSignal.didTimeout()) {
       throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
