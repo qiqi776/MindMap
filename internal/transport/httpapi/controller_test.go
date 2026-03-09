@@ -37,6 +37,18 @@ func (s *stubMutationService) GetNodesByIDs(ctx context.Context, nodeIDs []strin
 	return nil, nil
 }
 
+func (s *stubMutationService) DeleteNode(ctx context.Context, nodeID string) error {
+	return nil
+}
+
+func (s *stubMutationService) DeleteEdge(ctx context.Context, edgeID string) error {
+	return nil
+}
+
+func (s *stubMutationService) UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error {
+	return nil
+}
+
 func (s *stubMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error {
 	return nil
 }

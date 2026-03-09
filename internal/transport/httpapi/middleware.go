@@ -101,6 +101,8 @@ func mapError(err error) (int, int, string) {
 		return http.StatusNotFound, BusinessCodeNotFound, "source node not found"
 	case errors.Is(err, appservice.ErrTargetNodeNotFound):
 		return http.StatusNotFound, BusinessCodeNotFound, "target node not found"
+	case errors.Is(err, appservice.ErrEdgeNotFound):
+		return http.StatusNotFound, BusinessCodeNotFound, "edge not found"
 	case errors.Is(err, appservice.ErrNegativeMaxDepth):
 		return http.StatusBadRequest, BusinessCodeBadRequest, "depth must be greater than or equal to 0"
 	case errors.Is(err, appservice.ErrEmptyFocusNodeID):

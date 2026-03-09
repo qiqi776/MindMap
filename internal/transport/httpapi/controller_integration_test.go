@@ -61,6 +61,18 @@ func (s *integrationMutationService) GetNodesByIDs(ctx context.Context, nodeIDs 
 	return s.nodesToReturn, nil
 }
 
+func (s *integrationMutationService) DeleteNode(ctx context.Context, nodeID string) error {
+	return nil
+}
+
+func (s *integrationMutationService) DeleteEdge(ctx context.Context, edgeID string) error {
+	return nil
+}
+
+func (s *integrationMutationService) UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error {
+	return nil
+}
+
 func (s *integrationMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error {
 	return s.updateNodePositionErr
 }

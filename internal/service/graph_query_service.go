@@ -33,6 +33,9 @@ var (
 	// ErrTargetNodeNotFound indicates that the target endpoint of an edge is missing.
 	ErrTargetNodeNotFound = errors.New("service: target node not found")
 
+	// ErrEdgeNotFound indicates that the requested edge does not exist in storage.
+	ErrEdgeNotFound = errors.New("service: edge not found")
+
 	// ErrCyclicDependency indicates that a write operation would violate
 	// a domain rule that forbids a cycle for a constrained relation type.
 	ErrCyclicDependency = errors.New("service: cyclic dependency")

@@ -8,6 +8,18 @@ import (
 	model "treemindmap/internal/graph"
 )
 
+type nodeDeleter interface {
+	DeleteNode(ctx context.Context, nodeID string) error
+}
+
+type edgeDeleter interface {
+	DeleteEdge(ctx context.Context, edgeID string) error
+}
+
+type nodeUpdater interface {
+	UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error
+}
+
 type nodePositionUpdater interface {
 	UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error
 }
@@ -79,6 +91,78 @@ func (s *GraphMutationService) GetNodesByIDs(ctx context.Context, nodeIDs []stri
 	}
 
 	return s.repository.GetNodesByIDs(ctx, nodeIDs)
+}
+
+func (s *GraphMutationService) DeleteNode(ctx context.Context, nodeID string) error {
+	if ctx == nil {
+		return ErrNilContext
+	}
+
+	if s == nil || s.repository == nil {
+		return fmt.Errorf("service: nil repository")
+	}
+
+	deleter, ok := s.repository.(nodeDeleter)
+	if !ok {
+		return fmt.Errorf("service: node deletion is not supported by repository")
+	}
+
+	if err := deleter.DeleteNode(ctx, nodeID); err != nil {
+		if model.IsRecordNotFound(err) {
+			return ErrNodeNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (s *GraphMutationService) DeleteEdge(ctx context.Context, edgeID string) error {
+	if ctx == nil {
+		return ErrNilContext
+	}
+
+	if s == nil || s.repository == nil {
+		return fmt.Errorf("service: nil repository")
+	}
+
+	deleter, ok := s.repository.(edgeDeleter)
+	if !ok {
+		return fmt.Errorf("service: edge deletion is not supported by repository")
+	}
+
+	if err := deleter.DeleteEdge(ctx, edgeID); err != nil {
+		if model.IsRecordNotFound(err) {
+			return ErrEdgeNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (s *GraphMutationService) UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error {
+	if ctx == nil {
+		return ErrNilContext
+	}
+
+	if s == nil || s.repository == nil {
+		return fmt.Errorf("service: nil repository")
+	}
+
+	updater, ok := s.repository.(nodeUpdater)
+	if !ok {
+		return fmt.Errorf("service: node updates are not supported by repository")
+	}
+
+	if err := updater.UpdateNode(ctx, nodeID, content, properties); err != nil {
+		if model.IsRecordNotFound(err) {
+			return ErrNodeNotFound
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (s *GraphMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error {

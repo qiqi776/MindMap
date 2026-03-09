@@ -27,9 +27,25 @@ type GraphQueryService interface {
 // GraphMutationService defines the write and validation capabilities required
 // by GraphController for node and edge mutation endpoints.
 type GraphMutationService interface {
+	// CreateNode persists a newly submitted node aggregate.
 	CreateNode(ctx context.Context, node *model.Node) error
+
+	// CreateEdge persists a newly submitted edge aggregate.
 	CreateEdge(ctx context.Context, edge *model.Edge) error
+
+	// GetNodesByIDs loads the referenced nodes required for transport-level validation.
 	GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*model.Node, error)
+
+	// DeleteNode removes one node aggregate identified by nodeID.
+	DeleteNode(ctx context.Context, nodeID string) error
+
+	// DeleteEdge removes one edge aggregate identified by edgeID.
+	DeleteEdge(ctx context.Context, edgeID string) error
+
+	// UpdateNode applies a partial update to a node aggregate.
+	UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error
+
+	// UpdateNodePosition persists the latest node coordinates emitted by the client.
 	UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error
 }
 
@@ -209,6 +225,104 @@ func (ctl *GraphController) CreateEdge(c *gin.Context) {
 	}
 
 	Created(c, toEdgeVO(edge))
+}
+
+// DeleteNode handles DELETE /api/v1/nodes/:node_id.
+//
+// Example success response:
+// {"code":0,"message":"success","data":null}
+func (ctl *GraphController) DeleteNode(c *gin.Context) {
+	if ctl == nil || ctl.mutationService == nil {
+		Error(c, http.StatusInternalServerError, BusinessCodeInternalError, "graph mutation service is not configured")
+		return
+	}
+
+	var uriRequest NodeURIRequest
+	if err := c.ShouldBindUri(&uriRequest); err != nil {
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&uriRequest, err))
+		return
+	}
+
+	if err := ctl.mutationService.DeleteNode(c.Request.Context(), uriRequest.NodeID); err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	Success(c, nil)
+}
+
+// DeleteEdge handles DELETE /api/v1/edges/:edge_id.
+//
+// Example success response:
+// {"code":0,"message":"success","data":null}
+func (ctl *GraphController) DeleteEdge(c *gin.Context) {
+	if ctl == nil || ctl.mutationService == nil {
+		Error(c, http.StatusInternalServerError, BusinessCodeInternalError, "graph mutation service is not configured")
+		return
+	}
+
+	var uriRequest EdgeURIRequest
+	if err := c.ShouldBindUri(&uriRequest); err != nil {
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&uriRequest, err))
+		return
+	}
+
+	if err := ctl.mutationService.DeleteEdge(c.Request.Context(), uriRequest.EdgeID); err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	Success(c, nil)
+}
+
+// UpdateNode handles PUT /api/v1/nodes/:node_id.
+//
+// Example request:
+// {"content":"updated node","properties":{"x":120.5,"y":240.25}}
+//
+// Example success response:
+// {"code":0,"message":"success","data":{"id":"8c18feba-52a9-4a47-b4ec-8fd1e35ac081","type":"text","content":"updated node","properties":{"x":120.5,"y":240.25}}}
+func (ctl *GraphController) UpdateNode(c *gin.Context) {
+	if ctl == nil || ctl.mutationService == nil {
+		Error(c, http.StatusInternalServerError, BusinessCodeInternalError, "graph mutation service is not configured")
+		return
+	}
+
+	var uriRequest NodeURIRequest
+	if err := c.ShouldBindUri(&uriRequest); err != nil {
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&uriRequest, err))
+		return
+	}
+
+	var request UpdateNodeRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&request, err))
+		return
+	}
+
+	properties, err := marshalJSONDocument(request.Properties)
+	if err != nil {
+		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, "properties must be valid JSON")
+		return
+	}
+
+	if err := ctl.mutationService.UpdateNode(c.Request.Context(), uriRequest.NodeID, request.Content, properties); err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	nodeContent := ""
+	if request.Content != nil {
+		nodeContent = *request.Content
+	}
+
+	node := &model.Node{
+		ID:         uriRequest.NodeID,
+		Content:    nodeContent,
+		Properties: properties,
+	}
+
+	Success(c, toNodeVO(node))
 }
 
 // UpdateNodePosition handles PATCH /api/v1/nodes/:node_id/position.
