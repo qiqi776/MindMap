@@ -20,6 +20,7 @@ interface GraphShortcutRuntime {
   getEdges: () => SemanticMindMapEdge[];
   commitTopology: (nodes: MindMapNode[], edges: SemanticMindMapEdge[]) => void;
   restartLayout: (alpha?: number) => void;
+  getViewportCenter: () => { x: number; y: number };
 }
 
 let graphShortcutRuntime: GraphShortcutRuntime | null = null;
@@ -99,8 +100,16 @@ function computeInitialOffset(value: number): number {
   return value + NODE_OFFSET_X + Math.random() * NODE_OFFSET_JITTER;
 }
 
-async function createNodeFromShortcut(
-  selectedNodeId: string,
+function computeRootPosition(runtime: GraphShortcutRuntime): { x: number; y: number } {
+  const viewportCenter = runtime.getViewportCenter();
+  return {
+    x: viewportCenter.x + Math.random() * NODE_OFFSET_JITTER,
+    y: viewportCenter.y + Math.random() * NODE_OFFSET_JITTER,
+  };
+}
+
+async function createNodeCommand(
+  position: { x: number; y: number },
   parentNodeId: string | null,
 ): Promise<void> {
   const runtime = graphShortcutRuntime;
@@ -110,19 +119,14 @@ async function createNodeFromShortcut(
 
   const currentNodes = runtime.getNodes();
   const currentEdges = runtime.getEdges();
-  const selectedNode = currentNodes.find((node) => node.id === selectedNodeId);
-  if (!selectedNode) {
-    return;
-  }
-
   const previousSelectedNodeId = useGraphStore.getState().selectedNodeId;
   const previousSelectedEdgeId = useGraphStore.getState().selectedEdgeId;
   const newNodeId = createClientUUID();
   const newEdgeId = createClientUUID();
   const newNodeRecord = buildShortcutNodeRecord(
     newNodeId,
-    computeInitialOffset(selectedNode.position.x),
-    selectedNode.position.y + NODE_OFFSET_Y + Math.random() * NODE_OFFSET_JITTER,
+    position.x,
+    position.y,
   );
   const newNode = toFlowNode(newNodeRecord, currentNodes.length, currentNodes.length + 1);
   const nextNodes = useGraphStore.getState().addNode(newNode);
@@ -160,6 +164,58 @@ async function createNodeFromShortcut(
     }
     useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to create node'));
   }
+}
+
+export async function createChildNodeCommand(selectedNodeId: string): Promise<void> {
+  const runtime = graphShortcutRuntime;
+  if (!runtime) {
+    return;
+  }
+
+  const selectedNode = runtime.getNodes().find((node) => node.id === selectedNodeId);
+  if (!selectedNode) {
+    return;
+  }
+
+  await createNodeCommand({
+    x: computeInitialOffset(selectedNode.position.x),
+    y: selectedNode.position.y + NODE_OFFSET_Y + Math.random() * NODE_OFFSET_JITTER,
+  }, selectedNodeId);
+}
+
+export async function createSiblingNodeCommand(selectedNodeId: string): Promise<void> {
+  const runtime = graphShortcutRuntime;
+  if (!runtime) {
+    return;
+  }
+
+  const selectedNode = runtime.getNodes().find((node) => node.id === selectedNodeId);
+  if (!selectedNode) {
+    return;
+  }
+
+  const currentEdges = runtime.getEdges();
+  let parentNodeId: string | null = null;
+  for (const edge of currentEdges) {
+    if (edge.target === selectedNodeId) {
+      parentNodeId = edge.source;
+      break;
+    }
+  }
+
+  await createNodeCommand({
+    x: computeInitialOffset(selectedNode.position.x),
+    y: selectedNode.position.y + NODE_OFFSET_Y + Math.random() * NODE_OFFSET_JITTER,
+  }, parentNodeId);
+}
+
+export async function createRootNodeCommand(): Promise<void> {
+  const runtime = graphShortcutRuntime;
+  if (!runtime) {
+    return;
+  }
+
+  await createNodeCommand(computeRootPosition(runtime), null);
 }
 
 async function deleteSelectedNode(selectedNodeId: string): Promise<void> {
@@ -222,6 +278,20 @@ async function deleteSelectedEdge(selectedEdgeId: string): Promise<void> {
   }
 }
 
+export async function deleteSelectionCommand(
+  selectedNodeId: string | null,
+  selectedEdgeId: string | null,
+): Promise<void> {
+  if (selectedEdgeId) {
+    await deleteSelectedEdge(selectedEdgeId);
+    return;
+  }
+
+  if (selectedNodeId) {
+    await deleteSelectedNode(selectedNodeId);
+  }
+}
+
 export function useGraphShortcuts(
   selectedNodeId: string | null,
   selectedEdgeId: string | null,
@@ -247,37 +317,19 @@ export function useGraphShortcuts(
 
       if (event.key === 'Tab' && selectedNodeId) {
         event.preventDefault();
-        void createNodeFromShortcut(selectedNodeId, selectedNodeId);
+        void createChildNodeCommand(selectedNodeId);
         return;
       }
 
       if (event.key === 'Enter' && !event.shiftKey && selectedNodeId) {
         event.preventDefault();
-
-        const currentEdges = runtime.getEdges();
-        let parentNodeId: string | null = null;
-        for (const edge of currentEdges) {
-          if (edge.target === selectedNodeId) {
-            parentNodeId = edge.source;
-            break;
-          }
-        }
-
-        void createNodeFromShortcut(selectedNodeId, parentNodeId);
+        void createSiblingNodeCommand(selectedNodeId);
         return;
       }
 
       if (event.key === 'Backspace' || event.key === 'Delete') {
         event.preventDefault();
-
-        if (selectedEdgeId) {
-          void deleteSelectedEdge(selectedEdgeId);
-          return;
-        }
-
-        if (selectedNodeId) {
-          void deleteSelectedNode(selectedNodeId);
-        }
+        void deleteSelectionCommand(selectedNodeId, selectedEdgeId);
       }
     };
 

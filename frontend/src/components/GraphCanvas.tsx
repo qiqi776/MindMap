@@ -32,7 +32,14 @@ import {
 import { MindNode } from '@/components/MindNode';
 import { SemanticEdge, type SemanticEdgeData, type SemanticMindMapEdge } from '@/components/SemanticEdge';
 import { useConnectionCreation } from '@/hooks/useConnectionCreation';
-import { setGraphShortcutRuntime, useGraphShortcuts } from '@/hooks/useGraphShortcuts';
+import {
+  createChildNodeCommand,
+  createRootNodeCommand,
+  createSiblingNodeCommand,
+  deleteSelectionCommand,
+  setGraphShortcutRuntime,
+  useGraphShortcuts,
+} from '@/hooks/useGraphShortcuts';
 import {
   useForceLayout,
   type GraphVO,
@@ -334,13 +341,17 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
       getNodes: () => nodesRef.current,
       getEdges: () => edgesRef.current,
       commitTopology: commitMergedTopology,
+      getViewportCenter: () => ({
+        x: viewportSize.width > 0 ? viewportSize.width / 2 : 0,
+        y: viewportSize.height > 0 ? viewportSize.height / 2 : 0,
+      }),
       restartLayout,
     });
 
     return () => {
       setGraphShortcutRuntime(null);
     };
-  }, [commitMergedTopology, restartLayout]);
+  }, [commitMergedTopology, restartLayout, viewportSize.height, viewportSize.width]);
 
   const renderedNodes = useMemo(() => {
     return nodes.map((node) => ({
@@ -361,6 +372,30 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     const centerY = viewportSize.height > 0 ? viewportSize.height / 2 : 0;
     setCenter(centerX, centerY, { duration: CAMERA_ANIMATION_DURATION_MS });
   }, [setCenter, viewportSize.height, viewportSize.width]);
+
+  const handleCreateRootNode = useCallback(() => {
+    void createRootNodeCommand();
+  }, []);
+
+  const handleCreateChildNode = useCallback(() => {
+    if (!selectedNodeId) {
+      return;
+    }
+
+    void createChildNodeCommand(selectedNodeId);
+  }, [selectedNodeId]);
+
+  const handleCreateSiblingNode = useCallback(() => {
+    if (!selectedNodeId) {
+      return;
+    }
+
+    void createSiblingNodeCommand(selectedNodeId);
+  }, [selectedNodeId]);
+
+  const handleDeleteSelection = useCallback(() => {
+    void deleteSelectionCommand(selectedNodeId, selectedEdgeId);
+  }, [selectedEdgeId, selectedNodeId]);
 
   const performFocusSwitch = useCallback(async (
     focusAnchor: FocusNodeAnchor,
@@ -481,10 +516,44 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
 
   const rootClassName = ['graph-canvas', className].filter(Boolean).join(' ');
   const canOpenSelectedNode = Boolean(selectedNodeId && selectedNodeId !== focusNodeId);
+  const hasSelection = Boolean(selectedNodeId || selectedEdgeId);
 
   return (
     <div ref={containerRef} className={rootClassName}>
       {focusNodeId ? <div className="graph-focus-badge">焦点节点：{focusNodeId}</div> : null}
+      <div className="absolute right-4 top-4 z-10 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 p-2 shadow-sm backdrop-blur">
+        <button
+          type="button"
+          onClick={handleCreateRootNode}
+          className="graph-toolbar-btn"
+        >
+          新建根节点
+        </button>
+        <button
+          type="button"
+          onClick={handleCreateChildNode}
+          disabled={!selectedNodeId}
+          className="graph-toolbar-btn"
+        >
+          新建子节点
+        </button>
+        <button
+          type="button"
+          onClick={handleCreateSiblingNode}
+          disabled={!selectedNodeId}
+          className="graph-toolbar-btn"
+        >
+          新建同级节点
+        </button>
+        <button
+          type="button"
+          onClick={handleDeleteSelection}
+          disabled={!hasSelection}
+          className="graph-toolbar-btn graph-toolbar-btn--danger"
+        >
+          删除选中
+        </button>
+      </div>
       {selectedNodeId ? (
         <div className="absolute left-4 top-14 z-10 flex items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700 shadow-sm backdrop-blur">
           <span>选中节点：{selectedNodeId}</span>
