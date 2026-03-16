@@ -62,12 +62,14 @@ import {
   toSemanticEdge,
   type EdgeLike,
 } from '@/lib/graphViewModel';
+import { collectHiddenDescendantNodeIDs, hasCollapsibleChildren } from '@/lib/graphVisibility';
 import {
   createGraphEdge,
   deleteGraphEdge,
   fetchFocusGraph,
   GraphApiError,
   isRequestAbortError,
+  updateGraphNode,
   type CreateGraphEdgeRequest,
   type GraphEdgeRecord,
 } from '@/services/api';
@@ -257,6 +259,12 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNodeData>(topology.nodes);
   const [edges, setEdges] = useEdgesState<SemanticEdgeData>(topology.edges);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const hiddenDescendantNodeIDs = useMemo(() => collectHiddenDescendantNodeIDs(layoutNodes, layoutEdges), [layoutEdges, layoutNodes]);
+  const visibleLayoutNodes = useMemo(() => layoutNodes.filter((node) => !hiddenDescendantNodeIDs.has(node.id)), [hiddenDescendantNodeIDs, layoutNodes]);
+  const visibleLayoutEdges = useMemo(() => {
+    const visibleNodeIDs = new Set(visibleLayoutNodes.map((node) => node.id));
+    return layoutEdges.filter((edge) => visibleNodeIDs.has(edge.source) && visibleNodeIDs.has(edge.target));
+  }, [layoutEdges, visibleLayoutNodes]);
   const nodesRef = useRef<MindMapNode[]>(topology.nodes);
   const edgesRef = useRef<SemanticMindMapEdge[]>(topology.edges);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -302,8 +310,8 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     restartLayout,
     scheduleFocusReheat,
   } = useForceLayout({
-    topologyNodes: layoutNodes,
-    topologyEdges: layoutEdges,
+    topologyNodes: visibleLayoutNodes,
+    topologyEdges: visibleLayoutEdges,
     width: viewportSize.width,
     height: viewportSize.height,
     setNodes: setNodes as Dispatch<SetStateAction<MindMapNode[]>>,
@@ -454,6 +462,100 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     void redoGraphCommand();
   }, []);
 
+  const handleToggleCollapse = useCallback(async () => {
+    if (!selectedNodeId) {
+      return;
+    }
+
+    const selectedNode = nodesRef.current.find((node) => node.id === selectedNodeId);
+    if (!selectedNode) {
+      return;
+    }
+
+    const currentProperties = { ...(selectedNode.data.raw.properties ?? {}) };
+    const nextProperties = {
+      ...currentProperties,
+      collapsed: currentProperties.collapsed !== true,
+    };
+
+    useGraphStore.getState().updateNodeProperties(selectedNodeId, nextProperties);
+    setNodes((currentNodes) => currentNodes.map((node) => {
+      if (node.id !== selectedNodeId) {
+        return node;
+      }
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          raw: {
+            ...node.data.raw,
+            properties: nextProperties,
+          },
+        },
+      };
+    }));
+    setLayoutNodes((currentNodes) => currentNodes.map((node) => {
+      if (node.id !== selectedNodeId) {
+        return node;
+      }
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          raw: {
+            ...node.data.raw,
+            properties: nextProperties,
+          },
+        },
+      };
+    }));
+
+    try {
+      await updateGraphNode(selectedNodeId, {
+        content: selectedNode.data.raw.content,
+        properties: nextProperties,
+      });
+    } catch (error) {
+      useGraphStore.getState().updateNodeProperties(selectedNodeId, currentProperties);
+      setNodes((currentNodes) => currentNodes.map((node) => {
+        if (node.id !== selectedNodeId) {
+          return node;
+        }
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            raw: {
+              ...node.data.raw,
+              properties: currentProperties,
+            },
+          },
+        };
+      }));
+      setLayoutNodes((currentNodes) => currentNodes.map((node) => {
+        if (node.id !== selectedNodeId) {
+          return node;
+        }
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            raw: {
+              ...node.data.raw,
+              properties: currentProperties,
+            },
+          },
+        };
+      }));
+      const message = error instanceof GraphApiError ? error.message : 'Failed to update collapse state';
+      useGraphStore.getState().setError(message);
+    }
+  }, [selectedNodeId, setLayoutNodes, setNodes]);
+
   const performFocusSwitch = useCallback(async (
     focusAnchor: FocusNodeAnchor,
     controller: AbortController,
@@ -576,20 +678,23 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   const hasSelection = Boolean(selectedNodeId || selectedEdgeId);
   const canUndo = canUndoGraphCommand();
   const canRedo = canRedoGraphCommand();
+  const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
+  const canToggleCollapse = Boolean(selectedNodeId && hasCollapsibleChildren(selectedNodeId, layoutEdges));
+  const isSelectedNodeCollapsed = selectedNode?.data.raw.properties?.collapsed === true;
   const normalizedSearchQuery = normalizeSearchValue(searchQuery);
   const searchResults = useMemo(() => {
     if (normalizedSearchQuery.length === 0) {
       return [] as MindMapNode[];
     }
 
-    return nodes
+    return visibleLayoutNodes
       .filter((node) => {
         const content = normalizeSearchValue(node.data.raw.content);
         const entityType = normalizeSearchValue(node.data.entityType);
         return content.includes(normalizedSearchQuery) || entityType.includes(normalizedSearchQuery);
       })
       .slice(0, 8) as MindMapNode[];
-  }, [nodes, normalizedSearchQuery]);
+  }, [normalizedSearchQuery, visibleLayoutNodes]);
 
   const handleLocateNode = useCallback((nodeId: string) => {
     const targetNode = nodesRef.current.find((node) => node.id === nodeId);
@@ -673,6 +778,14 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
         >
           删除选中
         </button>
+        <button
+          type="button"
+          onClick={handleToggleCollapse}
+          disabled={!canToggleCollapse}
+          className="graph-toolbar-btn"
+        >
+          {isSelectedNodeCollapsed ? '展开子树' : '折叠子树'}
+        </button>
       </div>
       <div className="graph-search-panel">
         <input
@@ -733,8 +846,8 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
         />
       ) : null}
       <ReactFlow
-        nodes={renderedNodes}
-        edges={renderedEdges}
+        nodes={renderedNodes.filter((node) => !hiddenDescendantNodeIDs.has(node.id))}
+        edges={renderedEdges.filter((edge) => !hiddenDescendantNodeIDs.has(edge.source) && !hiddenDescendantNodeIDs.has(edge.target))}
         edgeTypes={edgeTypes}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}

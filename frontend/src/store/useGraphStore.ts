@@ -30,6 +30,7 @@ export interface GraphStoreActions {
   removeNode: (nodeId: string) => void;
   removeEdge: (edgeId: string) => void;
   updateNodeContent: (nodeId: string, content: string) => void;
+  updateNodeProperties: (nodeId: string, properties: Record<string, unknown>) => void;
   setSelectedNode: (nodeId: string | null) => void;
   setSelectedEdge: (edgeId: string | null) => void;
   clearSelection: () => void;
@@ -200,6 +201,27 @@ export const useGraphStore = create<GraphStore>((set) => ({
             raw: {
               ...node.data.raw,
               content,
+            },
+          },
+        };
+      }),
+    }));
+  },
+
+  updateNodeProperties: (nodeId, properties) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== nodeId) {
+          return node;
+        }
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            raw: {
+              ...node.data.raw,
+              properties,
             },
           },
         };
