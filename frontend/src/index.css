@@ -96,6 +96,34 @@ body {
     @apply border-red-300 text-red-700 hover:bg-red-50;
   }
 
+  .graph-search-panel {
+    @apply absolute right-4 top-[4.75rem] z-10 w-72 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur;
+  }
+
+  .graph-search-input {
+    @apply w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200;
+  }
+
+  .graph-search-results {
+    @apply mt-2 flex max-h-64 flex-col gap-1 overflow-auto;
+  }
+
+  .graph-search-result {
+    @apply flex w-full flex-col rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-blue-200 hover:bg-blue-50;
+  }
+
+  .graph-search-result__title {
+    @apply truncate text-sm font-semibold text-slate-900;
+  }
+
+  .graph-search-result__meta {
+    @apply mt-0.5 text-xs text-slate-500;
+  }
+
+  .graph-search-empty {
+    @apply rounded-xl px-3 py-2 text-sm text-slate-500;
+  }
+
   .semantic-edge-label {
     @apply pointer-events-none absolute h-8 min-w-40 whitespace-nowrap rounded-full border border-slate-300 bg-white/95 px-2.5 py-1.5 text-center text-xs font-semibold leading-5 text-slate-900 shadow-lg;
   }

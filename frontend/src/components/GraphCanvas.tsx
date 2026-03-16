@@ -22,8 +22,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type Dispatch,
   type FormEvent,
+  type KeyboardEvent,
   type ReactElement,
   type RefObject,
   type SetStateAction,
@@ -84,6 +86,10 @@ interface ViewportSize {
 const DEFAULT_GRAPH_DEPTH = 1;
 const FOCUS_SWITCH_DEBOUNCE_MS = 180;
 const CAMERA_ANIMATION_DURATION_MS = 800;
+
+function normalizeSearchValue(value: string): string {
+  return value.trim().toLowerCase();
+}
 
 function useViewportSize<T extends HTMLElement>(): {
   containerRef: RefObject<T>;
@@ -250,6 +256,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   const [layoutEdges, setLayoutEdges] = useState<SemanticMindMapEdge[]>(topology.edges);
   const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNodeData>(topology.nodes);
   const [edges, setEdges] = useEdgesState<SemanticEdgeData>(topology.edges);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const nodesRef = useRef<MindMapNode[]>(topology.nodes);
   const edgesRef = useRef<SemanticMindMapEdge[]>(topology.edges);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -569,6 +576,51 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   const hasSelection = Boolean(selectedNodeId || selectedEdgeId);
   const canUndo = canUndoGraphCommand();
   const canRedo = canRedoGraphCommand();
+  const normalizedSearchQuery = normalizeSearchValue(searchQuery);
+  const searchResults = useMemo(() => {
+    if (normalizedSearchQuery.length === 0) {
+      return [] as MindMapNode[];
+    }
+
+    return nodes
+      .filter((node) => {
+        const content = normalizeSearchValue(node.data.raw.content);
+        const entityType = normalizeSearchValue(node.data.entityType);
+        return content.includes(normalizedSearchQuery) || entityType.includes(normalizedSearchQuery);
+      })
+      .slice(0, 8) as MindMapNode[];
+  }, [nodes, normalizedSearchQuery]);
+
+  const handleLocateNode = useCallback((nodeId: string) => {
+    const targetNode = nodesRef.current.find((node) => node.id === nodeId);
+    if (!targetNode) {
+      return;
+    }
+
+    setSelectedNode(nodeId);
+    setCenter(targetNode.position.x, targetNode.position.y, { duration: CAMERA_ANIMATION_DURATION_MS });
+  }, [setCenter, setSelectedNode]);
+
+  const handleSearchChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value);
+  }, []);
+
+  const handleSearchKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setSearchQuery('');
+      return;
+    }
+
+    if (event.key === 'Enter' && searchResults.length > 0) {
+      event.preventDefault();
+      const [firstResult] = searchResults;
+      if (!firstResult) {
+        return;
+      }
+
+      handleLocateNode(firstResult.id);
+    }
+  }, [handleLocateNode, searchResults]);
 
   return (
     <div ref={containerRef} className={rootClassName}>
@@ -621,6 +673,33 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
         >
           删除选中
         </button>
+      </div>
+      <div className="graph-search-panel">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={handleSearchChange}
+          onKeyDown={handleSearchKeyDown}
+          placeholder="搜索节点内容"
+          className="graph-search-input"
+        />
+        {normalizedSearchQuery.length > 0 ? (
+          <div className="graph-search-results">
+            {searchResults.length > 0 ? searchResults.map((node) => (
+              <button
+                key={node.id}
+                type="button"
+                onClick={() => handleLocateNode(node.id)}
+                className="graph-search-result"
+              >
+                <span className="graph-search-result__title">{node.data.raw.content}</span>
+                <span className="graph-search-result__meta">{node.data.entityType}</span>
+              </button>
+            )) : (
+              <div className="graph-search-empty">没有匹配节点</div>
+            )}
+          </div>
+        ) : null}
       </div>
       {selectedNodeId ? (
         <div className="absolute left-4 top-14 z-10 flex items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700 shadow-sm backdrop-blur">
