@@ -52,6 +52,11 @@ export interface UpdateGraphNodeRequest {
   properties?: Record<string, unknown>;
 }
 
+export interface UpdateGraphNodePositionRequest {
+  x: number;
+  y: number;
+}
+
 export interface ApiRequestOptions {
   signal?: AbortSignal;
 }
@@ -334,6 +339,42 @@ export async function updateGraphNode(
     if (!response.ok) {
       throw new GraphApiError(
         envelope?.message ?? 'Request failed while updating node',
+        response.status,
+        envelope?.code ?? response.status,
+      );
+    }
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
+    }
+
+    throw error;
+  } finally {
+    requestSignal.cleanup();
+  }
+}
+
+export async function updateGraphNodePosition(
+  nodeId: string,
+  payload: UpdateGraphNodePositionRequest,
+  options: ApiRequestOptions = {},
+): Promise<void> {
+  const requestSignal = createAbortableRequestSignal(options);
+
+  try {
+    const response = await fetch(`${DEFAULT_API_BASE_URL}/nodes/${nodeId}/position`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: requestSignal.signal,
+    });
+
+    const envelope = await readEnvelope<null>(response);
+    if (!response.ok) {
+      throw new GraphApiError(
+        envelope?.message ?? 'Request failed while updating node position',
         response.status,
         envelope?.code ?? response.status,
       );

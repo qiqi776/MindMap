@@ -12,6 +12,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { Edge, Node, NodeDragHandler, XYPosition } from 'reactflow';
 
 import type { FocusNodeAnchor } from '@/lib/graphUtils';
+import { GraphApiError, updateGraphNodePosition } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
 
 export interface GraphNodeVO {
@@ -166,6 +167,7 @@ export function useForceLayout({
   const rafRef = useRef<number | null>(null);
   const focusUnlockTimerRef = useRef<number | null>(null);
   const pendingFocusRef = useRef<FocusNodeAnchor | null>(null);
+  const dragOriginRef = useRef<Map<string, XYPosition>>(new Map());
 
   const clearAnimationFrame = useCallback(() => {
     if (rafRef.current !== null) {
@@ -405,7 +407,12 @@ export function useForceLayout({
   }, []);
 
   const onNodeDragStart = useCallback<NodeDragHandler>((_, node) => {
-    pinNode(node as MindMapNode);
+    const positionedNode = node as MindMapNode;
+    dragOriginRef.current.set(positionedNode.id, {
+      x: positionedNode.position.x,
+      y: positionedNode.position.y,
+    });
+    pinNode(positionedNode);
   }, [pinNode]);
 
   const onNodeDrag = useCallback<NodeDragHandler>((_, node) => {
@@ -425,11 +432,33 @@ export function useForceLayout({
     datum.fy = null;
 
     useGraphStore.getState().updateNodePosition(positionedNode.id, positionedNode.position.x, positionedNode.position.y);
+    useGraphStore.getState().setError(null);
 
     const simulation = simulationRef.current;
     if (simulation) {
       simulation.alpha(0.35).alphaTarget(0).restart();
     }
+
+    const previousPosition = dragOriginRef.current.get(positionedNode.id);
+    dragOriginRef.current.delete(positionedNode.id);
+
+    void updateGraphNodePosition(positionedNode.id, {
+      x: positionedNode.position.x,
+      y: positionedNode.position.y,
+    }).catch((error: unknown) => {
+      if (previousPosition) {
+        datum.x = previousPosition.x;
+        datum.y = previousPosition.y;
+        useGraphStore.getState().updateNodePosition(positionedNode.id, previousPosition.x, previousPosition.y);
+      }
+
+      const message = error instanceof GraphApiError ? error.message : 'Failed to persist node position';
+      useGraphStore.getState().setError(message);
+
+      if (simulationRef.current) {
+        simulationRef.current.alpha(0.4).alphaTarget(0).restart();
+      }
+    });
   }, []);
 
   return {
