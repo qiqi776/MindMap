@@ -2,6 +2,7 @@ import {
   applyEdgeChanges,
   Background,
   Controls,
+  type EdgeMouseHandler,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -214,12 +215,17 @@ function RelationInputPopover(props: {
 
 function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElement {
   const focusNodeId = useGraphStore((state) => state.focusNodeId);
+  const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+  const selectedEdgeId = useGraphStore((state) => state.selectedEdgeId);
   const isLoading = useGraphStore((state) => state.isLoading);
   const error = useGraphStore((state) => state.error);
   const setError = useGraphStore((state) => state.setError);
+  const setSelectedNode = useGraphStore((state) => state.setSelectedNode);
+  const setSelectedEdge = useGraphStore((state) => state.setSelectedEdge);
+  const clearSelection = useGraphStore((state) => state.clearSelection);
   const { setCenter } = useReactFlow();
 
-  useGraphShortcuts(focusNodeId);
+  useGraphShortcuts(selectedNodeId, selectedEdgeId);
 
   const { containerRef, viewportSize } = useViewportSize<HTMLDivElement>();
   const topology = useMemo(() => buildFlowTopology(graph), [graph]);
@@ -244,6 +250,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     setEdges(topology.edges);
     useGraphStore.getState().setGraphData(topology.nodes, topology.edges);
     useGraphStore.getState().setFocusNode(nextFocusNodeId);
+    useGraphStore.getState().setSelectedNode(nextFocusNodeId);
     useGraphStore.getState().setError(null);
   }, [setEdges, setNodes, topology]);
 
@@ -369,6 +376,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
       commitMergedTopology(mergedTopology.nodes, normalizedEdges);
       scheduleFocusReheat(focusAnchor);
       useGraphStore.getState().setFocusNode(focusAnchor.id);
+      useGraphStore.getState().setSelectedNode(focusAnchor.id);
       useGraphStore.getState().setLoading(false);
       useGraphStore.getState().setError(null);
       panCameraToCenter();
@@ -406,20 +414,32 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   }, [setEdges]);
 
   const handleNodeClick = useCallback<NodeMouseHandler>((_, node: Node) => {
-    if (node.id === focusNodeId) {
-      useGraphStore.getState().setFocusNode(node.id);
+    cancelConnection();
+    setSelectedNode(node.id);
+  }, [cancelConnection, setSelectedNode]);
+
+  const handleEdgeClick = useCallback<EdgeMouseHandler>((_, edge) => {
+    cancelConnection();
+    setSelectedEdge(edge.id);
+  }, [cancelConnection, setSelectedEdge]);
+
+  const handleOpenSelectedNode = useCallback(() => {
+    if (!selectedNodeId || selectedNodeId === focusNodeId) {
+      return;
+    }
+
+    const selectedNode = nodesRef.current.find((node) => node.id === selectedNodeId);
+    if (!selectedNode) {
       return;
     }
 
     const previousFocusNodeId = useGraphStore.getState().focusNodeId;
     const focusAnchor: FocusNodeAnchor = {
-      id: node.id,
-      x: node.position.x,
-      y: node.position.y,
+      id: selectedNode.id,
+      x: selectedNode.position.x,
+      y: selectedNode.position.y,
     };
 
-    cancelConnection();
-    useGraphStore.getState().setFocusNode(node.id);
     useGraphStore.getState().setLoading(true);
     useGraphStore.getState().setError(null);
 
@@ -439,17 +459,36 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
       debounceTimerRef.current = null;
       void performFocusSwitch(focusAnchor, controller, nextRequestSequence, previousFocusNodeId);
     }, FOCUS_SWITCH_DEBOUNCE_MS);
-  }, [cancelConnection, focusNodeId, performFocusSwitch]);
+  }, [focusNodeId, performFocusSwitch, selectedNodeId]);
 
   useEffect(() => {
     cancelConnection();
   }, [cancelConnection, graph]);
 
   const rootClassName = ['graph-canvas', className].filter(Boolean).join(' ');
+  const canOpenSelectedNode = Boolean(selectedNodeId && selectedNodeId !== focusNodeId);
 
   return (
     <div ref={containerRef} className={rootClassName}>
       {focusNodeId ? <div className="graph-focus-badge">焦点节点：{focusNodeId}</div> : null}
+      {selectedNodeId ? (
+        <div className="absolute left-4 top-14 z-10 flex items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700 shadow-sm backdrop-blur">
+          <span>选中节点：{selectedNodeId}</span>
+          <button
+            type="button"
+            onClick={handleOpenSelectedNode}
+            disabled={!canOpenSelectedNode || isLoading}
+            className="rounded-full border border-blue-600 bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-blue-200 disabled:bg-blue-200"
+          >
+            进入子图
+          </button>
+        </div>
+      ) : null}
+      {!selectedNodeId && selectedEdgeId ? (
+        <div className="absolute left-4 top-14 z-10 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700 shadow-sm backdrop-blur">
+          选中连线：{selectedEdgeId}
+        </div>
+      ) : null}
       {error ? <ToastMessage intent="error" message={error} onClose={() => setError(null)} /> : null}
       {relationPopover.isConnecting && relationPopover.pendingConnection ? (
         <RelationInputPopover
@@ -471,10 +510,13 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
         onNodesChange={onNodesChange}
         onEdgesChange={handleEdgeChanges}
         onNodeClick={handleNodeClick}
+        onEdgeClick={handleEdgeClick}
+        onPaneClick={clearSelection}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onConnect={openConnectionPopover}
+        deleteKeyCode={null}
         defaultEdgeOptions={{
           type: 'semantic',
           className: 'semantic-edge',

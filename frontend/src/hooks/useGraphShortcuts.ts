@@ -6,6 +6,7 @@ import { toFlowNode, toSemanticEdge, type EdgeLike } from '@/lib/graphViewModel'
 import {
   createGraphEdge,
   createGraphNode,
+  deleteGraphEdge,
   deleteGraphNode,
   GraphApiError,
   type CreateGraphEdgeRequest,
@@ -99,7 +100,7 @@ function computeInitialOffset(value: number): number {
 }
 
 async function createNodeFromShortcut(
-  focusNodeId: string,
+  selectedNodeId: string,
   parentNodeId: string | null,
 ): Promise<void> {
   const runtime = graphShortcutRuntime;
@@ -109,18 +110,19 @@ async function createNodeFromShortcut(
 
   const currentNodes = runtime.getNodes();
   const currentEdges = runtime.getEdges();
-  const focusNode = currentNodes.find((node) => node.id === focusNodeId);
-  if (!focusNode) {
+  const selectedNode = currentNodes.find((node) => node.id === selectedNodeId);
+  if (!selectedNode) {
     return;
   }
 
-  const previousFocusNodeId = useGraphStore.getState().focusNodeId;
+  const previousSelectedNodeId = useGraphStore.getState().selectedNodeId;
+  const previousSelectedEdgeId = useGraphStore.getState().selectedEdgeId;
   const newNodeId = createClientUUID();
   const newEdgeId = createClientUUID();
   const newNodeRecord = buildShortcutNodeRecord(
     newNodeId,
-    computeInitialOffset(focusNode.position.x),
-    focusNode.position.y + NODE_OFFSET_Y + Math.random() * NODE_OFFSET_JITTER,
+    computeInitialOffset(selectedNode.position.x),
+    selectedNode.position.y + NODE_OFFSET_Y + Math.random() * NODE_OFFSET_JITTER,
   );
   const newNode = toFlowNode(newNodeRecord, currentNodes.length, currentNodes.length + 1);
   const nextNodes = useGraphStore.getState().addNode(newNode);
@@ -134,7 +136,7 @@ async function createNodeFromShortcut(
 
   runtime.commitTopology(nextNodes, nextEdges);
   runtime.restartLayout(0.88);
-  useGraphStore.getState().setFocusNode(newNodeId);
+  useGraphStore.getState().setSelectedNode(newNodeId);
   useGraphStore.getState().setError(null);
 
   try {
@@ -150,13 +152,17 @@ async function createNodeFromShortcut(
     }
   } catch (error) {
     useGraphStore.getState().setGraphData(currentNodes, currentEdges);
-    useGraphStore.getState().setFocusNode(previousFocusNodeId);
     runtime.commitTopology(currentNodes, currentEdges);
+    if (previousSelectedEdgeId) {
+      useGraphStore.getState().setSelectedEdge(previousSelectedEdgeId);
+    } else {
+      useGraphStore.getState().setSelectedNode(previousSelectedNodeId);
+    }
     useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to create node'));
   }
 }
 
-async function deleteFocusedNode(focusNodeId: string): Promise<void> {
+async function deleteSelectedNode(selectedNodeId: string): Promise<void> {
   const runtime = graphShortcutRuntime;
   if (!runtime) {
     return;
@@ -164,23 +170,62 @@ async function deleteFocusedNode(focusNodeId: string): Promise<void> {
 
   const previousNodes = runtime.getNodes();
   const previousEdges = runtime.getEdges();
+  const previousSelectedNodeId = useGraphStore.getState().selectedNodeId;
+  const previousSelectedEdgeId = useGraphStore.getState().selectedEdgeId;
   const previousFocusNodeId = useGraphStore.getState().focusNodeId;
 
-  useGraphStore.getState().removeNode(focusNodeId);
+  useGraphStore.getState().removeNode(selectedNodeId);
   runtime.commitTopology(useGraphStore.getState().nodes, useGraphStore.getState().edges);
   runtime.restartLayout(0.7);
 
   try {
-    await deleteGraphNode(focusNodeId);
+    await deleteGraphNode(selectedNodeId);
   } catch (error) {
     useGraphStore.getState().setGraphData(previousNodes, previousEdges);
     useGraphStore.getState().setFocusNode(previousFocusNodeId);
+    if (previousSelectedEdgeId) {
+      useGraphStore.getState().setSelectedEdge(previousSelectedEdgeId);
+    } else {
+      useGraphStore.getState().setSelectedNode(previousSelectedNodeId);
+    }
     runtime.commitTopology(previousNodes, previousEdges);
     useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to delete node'));
   }
 }
 
-export function useGraphShortcuts(focusNodeId: string | null): void {
+async function deleteSelectedEdge(selectedEdgeId: string): Promise<void> {
+  const runtime = graphShortcutRuntime;
+  if (!runtime) {
+    return;
+  }
+
+  const previousNodes = runtime.getNodes();
+  const previousEdges = runtime.getEdges();
+  const previousSelectedNodeId = useGraphStore.getState().selectedNodeId;
+  const previousSelectedEdgeState = useGraphStore.getState().selectedEdgeId;
+
+  useGraphStore.getState().removeEdge(selectedEdgeId);
+  runtime.commitTopology(useGraphStore.getState().nodes, useGraphStore.getState().edges);
+  runtime.restartLayout(0.55);
+
+  try {
+    await deleteGraphEdge(selectedEdgeId);
+  } catch (error) {
+    useGraphStore.getState().setGraphData(previousNodes, previousEdges);
+    if (previousSelectedEdgeState) {
+      useGraphStore.getState().setSelectedEdge(previousSelectedEdgeState);
+    } else {
+      useGraphStore.getState().setSelectedNode(previousSelectedNodeId);
+    }
+    runtime.commitTopology(previousNodes, previousEdges);
+    useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to delete edge'));
+  }
+}
+
+export function useGraphShortcuts(
+  selectedNodeId: string | null,
+  selectedEdgeId: string | null,
+): void {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.repeat) {
@@ -191,7 +236,7 @@ export function useGraphShortcuts(focusNodeId: string | null): void {
         return;
       }
 
-      if (!focusNodeId) {
+      if (!selectedNodeId && !selectedEdgeId) {
         return;
       }
 
@@ -200,31 +245,39 @@ export function useGraphShortcuts(focusNodeId: string | null): void {
         return;
       }
 
-      if (event.key === 'Tab') {
+      if (event.key === 'Tab' && selectedNodeId) {
         event.preventDefault();
-        void createNodeFromShortcut(focusNodeId, focusNodeId);
+        void createNodeFromShortcut(selectedNodeId, selectedNodeId);
         return;
       }
 
-      if (event.key === 'Enter' && !event.shiftKey) {
+      if (event.key === 'Enter' && !event.shiftKey && selectedNodeId) {
         event.preventDefault();
 
         const currentEdges = runtime.getEdges();
         let parentNodeId: string | null = null;
         for (const edge of currentEdges) {
-          if (edge.target === focusNodeId) {
+          if (edge.target === selectedNodeId) {
             parentNodeId = edge.source;
             break;
           }
         }
 
-        void createNodeFromShortcut(focusNodeId, parentNodeId);
+        void createNodeFromShortcut(selectedNodeId, parentNodeId);
         return;
       }
 
       if (event.key === 'Backspace' || event.key === 'Delete') {
         event.preventDefault();
-        void deleteFocusedNode(focusNodeId);
+
+        if (selectedEdgeId) {
+          void deleteSelectedEdge(selectedEdgeId);
+          return;
+        }
+
+        if (selectedNodeId) {
+          void deleteSelectedNode(selectedNodeId);
+        }
       }
     };
 
@@ -232,5 +285,5 @@ export function useGraphShortcuts(focusNodeId: string | null): void {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [focusNodeId]);
+  }, [selectedEdgeId, selectedNodeId]);
 }

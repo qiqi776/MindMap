@@ -14,6 +14,8 @@ export interface NodePositionUpdate {
 export interface GraphStoreState {
   nodes: MindMapNode[];
   edges: SemanticMindMapEdge[];
+  selectedNodeId: string | null;
+  selectedEdgeId: string | null;
   focusNodeId: string | null;
   isLoading: boolean;
   error: string | null;
@@ -28,6 +30,9 @@ export interface GraphStoreActions {
   removeNode: (nodeId: string) => void;
   removeEdge: (edgeId: string) => void;
   updateNodeContent: (nodeId: string, content: string) => void;
+  setSelectedNode: (nodeId: string | null) => void;
+  setSelectedEdge: (edgeId: string | null) => void;
+  clearSelection: () => void;
   setFocusNode: (nodeId: string | null) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
@@ -41,14 +46,24 @@ const POSITION_EPSILON = 0.5;
 export const useGraphStore = create<GraphStore>((set) => ({
   nodes: [],
   edges: [],
+  selectedNodeId: null,
+  selectedEdgeId: null,
   focusNodeId: null,
   isLoading: false,
   error: null,
 
   setGraphData: (nodes, edges) => {
-    set({
-      nodes,
-      edges: enrichParallelEdgeData(edges),
+    set((state) => {
+      const nextEdges = enrichParallelEdgeData(edges);
+      const nodeIDSet = new Set(nodes.map((node) => node.id));
+      const edgeIDSet = new Set(nextEdges.map((edge) => edge.id));
+
+      return {
+        nodes,
+        edges: nextEdges,
+        selectedNodeId: state.selectedNodeId && nodeIDSet.has(state.selectedNodeId) ? state.selectedNodeId : null,
+        selectedEdgeId: state.selectedEdgeId && edgeIDSet.has(state.selectedEdgeId) ? state.selectedEdgeId : null,
+      };
     });
   },
 
@@ -152,6 +167,8 @@ export const useGraphStore = create<GraphStore>((set) => ({
       return {
         nodes: nextNodes,
         edges: nextEdges,
+        selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
+        selectedEdgeId: state.selectedEdgeId && nextEdges.some((edge) => edge.id === state.selectedEdgeId) ? state.selectedEdgeId : null,
         focusNodeId: state.focusNodeId === nodeId ? null : state.focusNodeId,
       };
     });
@@ -160,6 +177,7 @@ export const useGraphStore = create<GraphStore>((set) => ({
   removeEdge: (edgeId) => {
     set((state) => ({
       edges: enrichParallelEdgeData(state.edges.filter((edge) => edge.id !== edgeId)),
+      selectedEdgeId: state.selectedEdgeId === edgeId ? null : state.selectedEdgeId,
     }));
   },
 
@@ -187,6 +205,27 @@ export const useGraphStore = create<GraphStore>((set) => ({
         };
       }),
     }));
+  },
+
+  setSelectedNode: (nodeId) => {
+    set({
+      selectedNodeId: nodeId,
+      selectedEdgeId: null,
+    });
+  },
+
+  setSelectedEdge: (edgeId) => {
+    set({
+      selectedNodeId: null,
+      selectedEdgeId: edgeId,
+    });
+  },
+
+  clearSelection: () => {
+    set({
+      selectedNodeId: null,
+      selectedEdgeId: null,
+    });
   },
 
   setFocusNode: (nodeId) => {
