@@ -92,6 +92,10 @@ body {
     @apply pointer-events-none absolute h-8 min-w-40 whitespace-nowrap rounded-full border border-slate-300 bg-white/95 px-2.5 py-1.5 text-center text-xs font-semibold leading-5 text-slate-900 shadow-lg;
   }
 
+  .semantic-edge-label--selected {
+    @apply border-blue-500 bg-blue-50 text-blue-700 shadow-xl;
+  }
+
   .graph-node {
     @apply min-w-[180px] rounded-xl border px-3 py-3 shadow-md;
   }
@@ -116,6 +120,11 @@ body {
 .react-flow__edge.semantic-edge .react-flow__edge-path {
   stroke: rgb(100 116 139);
   stroke-width: 1.5px;
+}
+
+.react-flow__edge.semantic-edge.selected .react-flow__edge-path {
+  stroke: rgb(37 99 235);
+  stroke-width: 2.5px;
 }
 
 @layer components {

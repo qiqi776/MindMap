@@ -342,6 +342,20 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     };
   }, [commitMergedTopology, restartLayout]);
 
+  const renderedNodes = useMemo(() => {
+    return nodes.map((node) => ({
+      ...node,
+      selected: node.id === selectedNodeId,
+    }));
+  }, [nodes, selectedNodeId]);
+
+  const renderedEdges = useMemo(() => {
+    return edges.map((edge) => ({
+      ...edge,
+      selected: edge.id === selectedEdgeId,
+    }));
+  }, [edges, selectedEdgeId]);
+
   const panCameraToCenter = useCallback(() => {
     const centerX = viewportSize.width > 0 ? viewportSize.width / 2 : 0;
     const centerY = viewportSize.height > 0 ? viewportSize.height / 2 : 0;
@@ -503,8 +517,8 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
         />
       ) : null}
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={renderedNodes}
+        edges={renderedEdges}
         edgeTypes={edgeTypes}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}

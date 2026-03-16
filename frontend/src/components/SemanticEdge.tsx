@@ -30,6 +30,7 @@ function compareNodeIDs(leftNodeID: string, rightNodeID: string): number {
 export const SemanticEdge = memo(function SemanticEdge(props: EdgeProps<SemanticEdgeData>): ReactElement {
   const {
     id,
+    selected,
     source,
     target,
     sourceX,
@@ -85,13 +86,14 @@ export const SemanticEdge = memo(function SemanticEdge(props: EdgeProps<Semantic
   });
 
   const relationType = data?.relationType?.trim() || 'UNSPECIFIED';
+  const labelClassName = selected ? 'semantic-edge-label semantic-edge-label--selected' : 'semantic-edge-label';
 
   return (
     <>
       <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} />
       <EdgeLabelRenderer>
         <div
-          className="semantic-edge-label"
+          className={labelClassName}
           style={{
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
