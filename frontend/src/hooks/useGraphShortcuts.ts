@@ -23,7 +23,25 @@ interface GraphShortcutRuntime {
   getViewportCenter: () => { x: number; y: number };
 }
 
+interface GraphHistorySnapshot {
+  nodes: MindMapNode[];
+  edges: SemanticMindMapEdge[];
+  selectedNodeId: string | null;
+  selectedEdgeId: string | null;
+  focusNodeId: string | null;
+}
+
+interface GraphHistoryEntry {
+  label: string;
+  undoSnapshot: GraphHistorySnapshot;
+  redoSnapshot: GraphHistorySnapshot;
+  undoRemote?: () => Promise<void>;
+  redoRemote?: () => Promise<void>;
+}
+
 let graphShortcutRuntime: GraphShortcutRuntime | null = null;
+const undoStack: GraphHistoryEntry[] = [];
+const redoStack: GraphHistoryEntry[] = [];
 
 const DEFAULT_RELATION_TYPE = 'CHILD';
 const DEFAULT_NODE_TYPE = 'text';
@@ -34,6 +52,77 @@ const NODE_OFFSET_JITTER = 12;
 
 export function setGraphShortcutRuntime(runtime: GraphShortcutRuntime | null): void {
   graphShortcutRuntime = runtime;
+}
+
+function cloneHistorySnapshot(snapshot: GraphHistorySnapshot): GraphHistorySnapshot {
+  return structuredClone(snapshot);
+}
+
+export function buildGraphHistorySnapshot(
+  nodes: MindMapNode[],
+  edges: SemanticMindMapEdge[],
+  selectedNodeId: string | null,
+  selectedEdgeId: string | null,
+  focusNodeId: string | null,
+): GraphHistorySnapshot {
+  return cloneHistorySnapshot({
+    nodes,
+    edges,
+    selectedNodeId,
+    selectedEdgeId,
+    focusNodeId,
+  });
+}
+
+export function captureGraphHistorySnapshot(): GraphHistorySnapshot | null {
+  const runtime = graphShortcutRuntime;
+  if (!runtime) {
+    return null;
+  }
+
+  const store = useGraphStore.getState();
+  return buildGraphHistorySnapshot(
+    runtime.getNodes(),
+    runtime.getEdges(),
+    store.selectedNodeId,
+    store.selectedEdgeId,
+    store.focusNodeId,
+  );
+}
+
+function applyGraphHistorySnapshot(snapshot: GraphHistorySnapshot): void {
+  const runtime = graphShortcutRuntime;
+  if (!runtime) {
+    return;
+  }
+
+  const nextSnapshot = cloneHistorySnapshot(snapshot);
+  runtime.commitTopology(nextSnapshot.nodes, nextSnapshot.edges);
+  useGraphStore.getState().setFocusNode(nextSnapshot.focusNodeId);
+
+  if (nextSnapshot.selectedEdgeId) {
+    useGraphStore.getState().setSelectedEdge(nextSnapshot.selectedEdgeId);
+  } else if (nextSnapshot.selectedNodeId) {
+    useGraphStore.getState().setSelectedNode(nextSnapshot.selectedNodeId);
+  } else {
+    useGraphStore.getState().clearSelection();
+  }
+
+  runtime.restartLayout(0.65);
+  useGraphStore.getState().setError(null);
+}
+
+export function pushGraphHistoryEntry(entry: GraphHistoryEntry): void {
+  undoStack.push(entry);
+  redoStack.length = 0;
+}
+
+export function canUndoGraphCommand(): boolean {
+  return undoStack.length > 0;
+}
+
+export function canRedoGraphCommand(): boolean {
+  return redoStack.length > 0;
 }
 
 function createClientUUID(): string {
@@ -96,6 +185,42 @@ function buildErrorMessage(error: unknown, fallbackMessage: string): string {
   return error instanceof GraphApiError ? error.message : fallbackMessage;
 }
 
+function buildNodeRecordFromMindNode(node: MindMapNode): GraphNodeRecord {
+  return {
+    ...node.data.raw,
+    content: node.data.raw.content,
+    properties: {
+      ...(node.data.raw.properties ?? {}),
+      x: node.position.x,
+      y: node.position.y,
+    },
+  };
+}
+
+function buildEdgeRequestFromMindMapEdge(edge: SemanticMindMapEdge): CreateGraphEdgeRequest {
+  const rawEdge = edge.data?.raw;
+
+  if (!rawEdge) {
+    return {
+      id: edge.id,
+      source_id: edge.source,
+      target_id: edge.target,
+      relation_type: DEFAULT_RELATION_TYPE,
+      weight: 1,
+      properties: {},
+    };
+  }
+
+  return {
+    id: rawEdge.id,
+    source_id: rawEdge.source_id,
+    target_id: rawEdge.target_id,
+    relation_type: rawEdge.relation_type,
+    weight: rawEdge.weight,
+    properties: rawEdge.properties ?? {},
+  };
+}
+
 function computeInitialOffset(value: number): number {
   return value + NODE_OFFSET_X + Math.random() * NODE_OFFSET_JITTER;
 }
@@ -119,8 +244,10 @@ async function createNodeCommand(
 
   const currentNodes = runtime.getNodes();
   const currentEdges = runtime.getEdges();
+  const beforeSnapshot = captureGraphHistorySnapshot();
   const previousSelectedNodeId = useGraphStore.getState().selectedNodeId;
   const previousSelectedEdgeId = useGraphStore.getState().selectedEdgeId;
+  const currentFocusNodeId = useGraphStore.getState().focusNodeId;
   const newNodeId = createClientUUID();
   const newEdgeId = createClientUUID();
   const newNodeRecord = buildShortcutNodeRecord(
@@ -142,6 +269,13 @@ async function createNodeCommand(
   runtime.restartLayout(0.88);
   useGraphStore.getState().setSelectedNode(newNodeId);
   useGraphStore.getState().setError(null);
+  const afterSnapshot = buildGraphHistorySnapshot(
+    nextNodes,
+    nextEdges,
+    newNodeId,
+    null,
+    currentFocusNodeId,
+  );
 
   try {
     await createGraphNode(buildCreateNodeRequest(newNodeRecord));
@@ -153,6 +287,23 @@ async function createNodeCommand(
         await deleteGraphNode(newNodeId).catch(() => undefined);
         throw error;
       }
+    }
+
+    if (beforeSnapshot) {
+      pushGraphHistoryEntry({
+        label: 'create-node',
+        undoSnapshot: beforeSnapshot,
+        redoSnapshot: afterSnapshot,
+        undoRemote: async () => {
+          await deleteGraphNode(newNodeId);
+        },
+        redoRemote: async () => {
+          await createGraphNode(buildCreateNodeRequest(newNodeRecord));
+          if (edgePayload) {
+            await createGraphEdge(edgePayload);
+          }
+        },
+      });
     }
   } catch (error) {
     useGraphStore.getState().setGraphData(currentNodes, currentEdges);
@@ -226,16 +377,37 @@ async function deleteSelectedNode(selectedNodeId: string): Promise<void> {
 
   const previousNodes = runtime.getNodes();
   const previousEdges = runtime.getEdges();
+  const beforeSnapshot = captureGraphHistorySnapshot();
   const previousSelectedNodeId = useGraphStore.getState().selectedNodeId;
   const previousSelectedEdgeId = useGraphStore.getState().selectedEdgeId;
   const previousFocusNodeId = useGraphStore.getState().focusNodeId;
+  const deletedNode = previousNodes.find((node) => node.id === selectedNodeId);
+  const deletedEdges = previousEdges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId);
 
   useGraphStore.getState().removeNode(selectedNodeId);
   runtime.commitTopology(useGraphStore.getState().nodes, useGraphStore.getState().edges);
   runtime.restartLayout(0.7);
+  const afterSnapshot = captureGraphHistorySnapshot();
 
   try {
     await deleteGraphNode(selectedNodeId);
+
+    if (beforeSnapshot && afterSnapshot && deletedNode) {
+      pushGraphHistoryEntry({
+        label: 'delete-node',
+        undoSnapshot: beforeSnapshot,
+        redoSnapshot: afterSnapshot,
+        undoRemote: async () => {
+          await createGraphNode(buildCreateNodeRequest(buildNodeRecordFromMindNode(deletedNode)));
+          for (const edge of deletedEdges) {
+            await createGraphEdge(buildEdgeRequestFromMindMapEdge(edge));
+          }
+        },
+        redoRemote: async () => {
+          await deleteGraphNode(selectedNodeId);
+        },
+      });
+    }
   } catch (error) {
     useGraphStore.getState().setGraphData(previousNodes, previousEdges);
     useGraphStore.getState().setFocusNode(previousFocusNodeId);
@@ -257,15 +429,33 @@ async function deleteSelectedEdge(selectedEdgeId: string): Promise<void> {
 
   const previousNodes = runtime.getNodes();
   const previousEdges = runtime.getEdges();
+  const beforeSnapshot = captureGraphHistorySnapshot();
   const previousSelectedNodeId = useGraphStore.getState().selectedNodeId;
   const previousSelectedEdgeState = useGraphStore.getState().selectedEdgeId;
+  const deletedEdge = previousEdges.find((edge) => edge.id === selectedEdgeId);
 
   useGraphStore.getState().removeEdge(selectedEdgeId);
   runtime.commitTopology(useGraphStore.getState().nodes, useGraphStore.getState().edges);
   runtime.restartLayout(0.55);
+  const afterSnapshot = captureGraphHistorySnapshot();
 
   try {
     await deleteGraphEdge(selectedEdgeId);
+
+    if (beforeSnapshot && afterSnapshot && deletedEdge) {
+      const edgeRequest = buildEdgeRequestFromMindMapEdge(deletedEdge);
+      pushGraphHistoryEntry({
+        label: 'delete-edge',
+        undoSnapshot: beforeSnapshot,
+        redoSnapshot: afterSnapshot,
+        undoRemote: async () => {
+          await createGraphEdge(edgeRequest);
+        },
+        redoRemote: async () => {
+          await deleteGraphEdge(selectedEdgeId);
+        },
+      });
+    }
   } catch (error) {
     useGraphStore.getState().setGraphData(previousNodes, previousEdges);
     if (previousSelectedEdgeState) {
@@ -292,6 +482,46 @@ export async function deleteSelectionCommand(
   }
 }
 
+export async function undoGraphCommand(): Promise<void> {
+  const entry = undoStack.pop();
+  if (!entry) {
+    return;
+  }
+
+  applyGraphHistorySnapshot(entry.undoSnapshot);
+
+  try {
+    if (entry.undoRemote) {
+      await entry.undoRemote();
+    }
+    redoStack.push(entry);
+  } catch (error) {
+    applyGraphHistorySnapshot(entry.redoSnapshot);
+    undoStack.push(entry);
+    useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to undo graph command'));
+  }
+}
+
+export async function redoGraphCommand(): Promise<void> {
+  const entry = redoStack.pop();
+  if (!entry) {
+    return;
+  }
+
+  applyGraphHistorySnapshot(entry.redoSnapshot);
+
+  try {
+    if (entry.redoRemote) {
+      await entry.redoRemote();
+    }
+    undoStack.push(entry);
+  } catch (error) {
+    applyGraphHistorySnapshot(entry.undoSnapshot);
+    redoStack.push(entry);
+    useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to redo graph command'));
+  }
+}
+
 export function useGraphShortcuts(
   selectedNodeId: string | null,
   selectedEdgeId: string | null,
@@ -306,12 +536,29 @@ export function useGraphShortcuts(
         return;
       }
 
-      if (!selectedNodeId && !selectedEdgeId) {
+      const runtime = graphShortcutRuntime;
+      if (!runtime) {
         return;
       }
 
-      const runtime = graphShortcutRuntime;
-      if (!runtime) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+
+        if (event.shiftKey) {
+          void redoGraphCommand();
+        } else {
+          void undoGraphCommand();
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        void redoGraphCommand();
+        return;
+      }
+
+      if (!selectedNodeId && !selectedEdgeId) {
         return;
       }
 

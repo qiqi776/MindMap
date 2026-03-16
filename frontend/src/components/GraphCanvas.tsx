@@ -33,11 +33,18 @@ import { MindNode } from '@/components/MindNode';
 import { SemanticEdge, type SemanticEdgeData, type SemanticMindMapEdge } from '@/components/SemanticEdge';
 import { useConnectionCreation } from '@/hooks/useConnectionCreation';
 import {
+  buildGraphHistorySnapshot,
+  canRedoGraphCommand,
+  canUndoGraphCommand,
   createChildNodeCommand,
   createRootNodeCommand,
   createSiblingNodeCommand,
+  captureGraphHistorySnapshot,
   deleteSelectionCommand,
+  pushGraphHistoryEntry,
+  redoGraphCommand,
   setGraphShortcutRuntime,
+  undoGraphCommand,
   useGraphShortcuts,
 } from '@/hooks/useGraphShortcuts';
 import {
@@ -54,9 +61,12 @@ import {
   type EdgeLike,
 } from '@/lib/graphViewModel';
 import {
+  createGraphEdge,
+  deleteGraphEdge,
   fetchFocusGraph,
   GraphApiError,
   isRequestAbortError,
+  type CreateGraphEdgeRequest,
   type GraphEdgeRecord,
 } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
@@ -300,10 +310,42 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   }, [viewportSize.height, viewportSize.width]);
 
   const handlePersistedEdge = useCallback((persistedEdge: GraphEdgeRecord) => {
+    const beforeSnapshot = captureGraphHistorySnapshot();
     const nextFlowEdge = toSemanticEdge(persistedEdge as EdgeLike);
     const nextEdges = useGraphStore.getState().addSemanticEdge(nextFlowEdge);
+    edgesRef.current = nextEdges;
     setLayoutEdges(nextEdges);
     setEdges(nextEdges);
+    const afterSnapshot = buildGraphHistorySnapshot(
+      nodesRef.current,
+      nextEdges,
+      useGraphStore.getState().selectedNodeId,
+      useGraphStore.getState().selectedEdgeId,
+      useGraphStore.getState().focusNodeId,
+    );
+
+    if (beforeSnapshot) {
+      const edgePayload: CreateGraphEdgeRequest = {
+        id: persistedEdge.id,
+        source_id: persistedEdge.source_id,
+        target_id: persistedEdge.target_id,
+        relation_type: persistedEdge.relation_type,
+        weight: persistedEdge.weight,
+        properties: persistedEdge.properties ?? {},
+      };
+
+      pushGraphHistoryEntry({
+        label: 'create-edge',
+        undoSnapshot: beforeSnapshot,
+        redoSnapshot: afterSnapshot,
+        undoRemote: async () => {
+          await deleteGraphEdge(persistedEdge.id);
+        },
+        redoRemote: async () => {
+          await createGraphEdge(edgePayload);
+        },
+      });
+    }
   }, [setEdges]);
 
   const {
@@ -396,6 +438,14 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   const handleDeleteSelection = useCallback(() => {
     void deleteSelectionCommand(selectedNodeId, selectedEdgeId);
   }, [selectedEdgeId, selectedNodeId]);
+
+  const handleUndo = useCallback(() => {
+    void undoGraphCommand();
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    void redoGraphCommand();
+  }, []);
 
   const performFocusSwitch = useCallback(async (
     focusAnchor: FocusNodeAnchor,
@@ -517,11 +567,29 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
   const rootClassName = ['graph-canvas', className].filter(Boolean).join(' ');
   const canOpenSelectedNode = Boolean(selectedNodeId && selectedNodeId !== focusNodeId);
   const hasSelection = Boolean(selectedNodeId || selectedEdgeId);
+  const canUndo = canUndoGraphCommand();
+  const canRedo = canRedoGraphCommand();
 
   return (
     <div ref={containerRef} className={rootClassName}>
       {focusNodeId ? <div className="graph-focus-badge">焦点节点：{focusNodeId}</div> : null}
       <div className="absolute right-4 top-4 z-10 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 p-2 shadow-sm backdrop-blur">
+        <button
+          type="button"
+          onClick={handleUndo}
+          disabled={!canUndo}
+          className="graph-toolbar-btn"
+        >
+          撤销
+        </button>
+        <button
+          type="button"
+          onClick={handleRedo}
+          disabled={!canRedo}
+          className="graph-toolbar-btn"
+        >
+          重做
+        </button>
         <button
           type="button"
           onClick={handleCreateRootNode}

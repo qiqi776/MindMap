@@ -15,8 +15,13 @@ import {
   type NodeProps,
 } from 'reactflow';
 
-import type { SemanticEdgeData } from '@/components/SemanticEdge';
-import type { MindMapNodeData } from '@/hooks/useForceLayout';
+import type { SemanticEdgeData, SemanticMindMapEdge } from '@/components/SemanticEdge';
+import type { MindMapNode, MindMapNodeData } from '@/hooks/useForceLayout';
+import {
+  buildGraphHistorySnapshot,
+  captureGraphHistorySnapshot,
+  pushGraphHistoryEntry,
+} from '@/hooks/useGraphShortcuts';
 import { GraphApiError, updateGraphNode } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
 
@@ -32,7 +37,7 @@ function buildNodeClass(entityType: string, isSelected: boolean): string {
 
 export function MindNode(props: NodeProps<MindMapNodeData>): ReactElement {
   const { id, data, selected } = props;
-  const { setNodes } = useReactFlow<MindMapNodeData, SemanticEdgeData>();
+  const { getEdges, setNodes } = useReactFlow<MindMapNodeData, SemanticEdgeData>();
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editValue, setEditValue] = useState<string>(data.raw.content);
   const isSubmittingRef = useRef<boolean>(false);
@@ -50,24 +55,33 @@ export function MindNode(props: NodeProps<MindMapNodeData>): ReactElement {
     event.stopPropagation();
   }, []);
 
-  const syncCanvasNodeContent = useCallback((content: string) => {
-    setNodes((currentNodes) => currentNodes.map((node) => {
-      if (node.id !== id) {
-        return node;
-      }
+  const syncCanvasNodeContent = useCallback((content: string): MindMapNode[] => {
+    let nextNodesSnapshot: MindMapNode[] = [];
 
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          label: content,
-          raw: {
-            ...node.data.raw,
-            content,
+    setNodes((currentNodes) => {
+      const nextNodes = currentNodes.map((node) => {
+        if (node.id !== id) {
+          return node;
+        }
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            label: content,
+            raw: {
+              ...node.data.raw,
+              content,
+            },
           },
-        },
-      };
-    }));
+        };
+      }) as MindMapNode[];
+
+      nextNodesSnapshot = nextNodes;
+      return nextNodes;
+    });
+
+    return nextNodesSnapshot;
   }, [id, setNodes]);
 
   const cancelEditing = useCallback(() => {
@@ -84,6 +98,7 @@ export function MindNode(props: NodeProps<MindMapNodeData>): ReactElement {
     isSubmittingRef.current = true;
     const previousContent = data.raw.content;
     const nextContent = editValue;
+    const beforeSnapshot = captureGraphHistorySnapshot();
 
     try {
       if (nextContent === previousContent) {
@@ -91,15 +106,42 @@ export function MindNode(props: NodeProps<MindMapNodeData>): ReactElement {
         return;
       }
 
-      syncCanvasNodeContent(nextContent);
+      const nextNodes = syncCanvasNodeContent(nextContent);
       useGraphStore.getState().updateNodeContent(id, nextContent);
       useGraphStore.getState().setError(null);
       setIsEditing(false);
+      const afterSnapshot = buildGraphHistorySnapshot(
+        nextNodes,
+        getEdges() as SemanticMindMapEdge[],
+        useGraphStore.getState().selectedNodeId,
+        useGraphStore.getState().selectedEdgeId,
+        useGraphStore.getState().focusNodeId,
+      );
 
       await updateGraphNode(id, {
         content: nextContent,
         properties: data.raw.properties ?? {},
       });
+
+      if (beforeSnapshot) {
+        pushGraphHistoryEntry({
+          label: 'update-node-content',
+          undoSnapshot: beforeSnapshot,
+          redoSnapshot: afterSnapshot,
+          undoRemote: async () => {
+            await updateGraphNode(id, {
+              content: previousContent,
+              properties: data.raw.properties ?? {},
+            });
+          },
+          redoRemote: async () => {
+            await updateGraphNode(id, {
+              content: nextContent,
+              properties: data.raw.properties ?? {},
+            });
+          },
+        });
+      }
     } catch (error) {
       syncCanvasNodeContent(previousContent);
       useGraphStore.getState().updateNodeContent(id, previousContent);
@@ -108,7 +150,7 @@ export function MindNode(props: NodeProps<MindMapNodeData>): ReactElement {
     } finally {
       isSubmittingRef.current = false;
     }
-  }, [data.raw.content, data.raw.properties, editValue, id, syncCanvasNodeContent]);
+  }, [data.raw.content, data.raw.properties, editValue, getEdges, id, syncCanvasNodeContent]);
 
   const handleStartEditing = useCallback(() => {
     setEditValue(data.raw.content);
