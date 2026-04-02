@@ -107,10 +107,6 @@ type Node struct {
 	// UpdatedAt records the most recent successful mutation of the node and is
 	// used for audit trails and cache invalidation.
 	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime;not null;autoUpdateTime:milli"`
-
-	// DeletedAt marks the node as soft-deleted without removing the row so
-	// higher-level services can preserve auditability and recovery paths.
-	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime;index:idx_nodes_deleted_at"`
 }
 
 // TableName binds the Node model to the nodes table.
@@ -155,10 +151,6 @@ type Edge struct {
 	// UpdatedAt records the most recent successful mutation of the edge and is
 	// used for audit trails and cache invalidation.
 	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime;not null;autoUpdateTime:milli"`
-
-	// DeletedAt marks the edge as soft-deleted without removing the row so
-	// higher-level services can preserve auditability and recovery paths.
-	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime;index:idx_edges_deleted_at"`
 }
 
 // TableName binds the Edge model to the edges table.

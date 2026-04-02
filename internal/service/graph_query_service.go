@@ -55,12 +55,12 @@ type SubGraphDTO struct {
 
 // GraphQueryService coordinates graph traversal against the repository layer.
 type GraphQueryService struct {
-	repository model.GraphRepository
+	repository model.GraphQueryRepository
 }
 
 // NewGraphQueryService constructs a query service with the repository used for
 // batched node and edge retrieval.
-func NewGraphQueryService(repository model.GraphRepository) *GraphQueryService {
+func NewGraphQueryService(repository model.GraphQueryRepository) *GraphQueryService {
 	return &GraphQueryService{repository: repository}
 }
 

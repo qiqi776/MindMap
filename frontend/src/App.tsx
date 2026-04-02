@@ -1,26 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { GraphCanvas } from '@/components/GraphCanvas';
-import type { GraphVO } from '@/hooks/useForceLayout';
+import { buildFlowTopology } from '@/lib/graphViewModel';
 import { isRequestAbortError } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
 
 const DEFAULT_FOCUS_NODE_ID = '11111111-1111-1111-1111-111111111111';
 const DEFAULT_GRAPH_DEPTH = 1;
 
-function buildEmptyGraph(): GraphVO {
-  return {
-    nodes: [],
-    edges: [],
-  };
-}
-
 export default function App() {
   const isLoading = useGraphStore((state) => state.isLoading);
   const error = useGraphStore((state) => state.error);
+  const nodes = useGraphStore((state) => state.nodes);
   const fetchFocusGraph = useGraphStore((state) => state.fetchFocusGraph);
+  const setGraphData = useGraphStore((state) => state.setGraphData);
   const setError = useGraphStore((state) => state.setError);
-  const [graph, setGraph] = useState<GraphVO>(buildEmptyGraph());
+  const setFocusNode = useGraphStore((state) => state.setFocusNode);
+  const setSelectedNode = useGraphStore((state) => state.setSelectedNode);
+  const startGraphSession = useGraphStore((state) => state.startGraphSession);
   const requestControllerRef = useRef<AbortController | null>(null);
 
   const focusNodeId = import.meta.env.VITE_FOCUS_NODE_ID ?? DEFAULT_FOCUS_NODE_ID;
@@ -33,7 +30,11 @@ export default function App() {
 
     try {
       const nextGraph = await fetchFocusGraph(focusNodeId, DEFAULT_GRAPH_DEPTH, controller.signal);
-      setGraph(nextGraph);
+      const nextTopology = buildFlowTopology(nextGraph);
+      setGraphData(nextTopology.nodes, nextTopology.edges);
+      setFocusNode(focusNodeId);
+      setSelectedNode(focusNodeId);
+      startGraphSession();
     } catch (error) {
       if (isRequestAbortError(error)) {
         return;
@@ -53,7 +54,7 @@ export default function App() {
     };
   }, [loadGraph]);
 
-  if (isLoading && graph.nodes.length === 0) {
+  if (isLoading && nodes.length === 0) {
     return (
       <main className="flex h-full w-full items-center justify-center bg-slate-50 text-sm font-semibold text-slate-700">
         正在加载图谱数据…
@@ -84,7 +85,7 @@ export default function App() {
 
   return (
     <main className="h-full w-full">
-      <GraphCanvas graph={graph} />
+      <GraphCanvas />
     </main>
   );
 }

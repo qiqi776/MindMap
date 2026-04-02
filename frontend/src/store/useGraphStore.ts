@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
 import type { GraphVO, MindMapNode } from '@/hooks/useForceLayout';
+import type { GraphHistoryEntry } from '@/lib/graphHistory';
 import { enrichParallelEdgeData } from '@/lib/graphViewModel';
 import { fetchFocusGraph, GraphApiError, isRequestAbortError } from '@/services/api';
 
@@ -19,6 +20,9 @@ export interface GraphStoreState {
   focusNodeId: string | null;
   isLoading: boolean;
   error: string | null;
+  graphSessionId: number;
+  undoStack: GraphHistoryEntry[];
+  redoStack: GraphHistoryEntry[];
 }
 
 export interface GraphStoreActions {
@@ -37,6 +41,14 @@ export interface GraphStoreActions {
   setFocusNode: (nodeId: string | null) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
+  startGraphSession: () => number;
+  clearHistory: () => void;
+  pushHistoryEntry: (entry: GraphHistoryEntry) => void;
+  popUndoHistoryEntry: () => GraphHistoryEntry | undefined;
+  pushRedoHistoryEntry: (entry: GraphHistoryEntry) => void;
+  popRedoHistoryEntry: () => GraphHistoryEntry | undefined;
+  restoreUndoHistoryEntry: (entry: GraphHistoryEntry) => void;
+  restoreRedoHistoryEntry: (entry: GraphHistoryEntry) => void;
   fetchFocusGraph: (focusNodeId: string, depth?: number, signal?: AbortSignal) => Promise<GraphVO>;
 }
 
@@ -52,6 +64,9 @@ export const useGraphStore = create<GraphStore>((set) => ({
   focusNodeId: null,
   isLoading: false,
   error: null,
+  graphSessionId: 0,
+  undoStack: [],
+  redoStack: [],
 
   setGraphData: (nodes, edges) => {
     set((state) => {
@@ -99,6 +114,17 @@ export const useGraphStore = create<GraphStore>((set) => ({
         hasChanged = true;
         return {
           ...node,
+          data: {
+            ...node.data,
+            raw: {
+              ...node.data.raw,
+              properties: {
+                ...(node.data.raw.properties ?? {}),
+                x,
+                y,
+              },
+            },
+          },
           position: { x, y },
         };
       });
@@ -132,6 +158,17 @@ export const useGraphStore = create<GraphStore>((set) => ({
         hasChanged = true;
         return {
           ...node,
+          data: {
+            ...node.data,
+            raw: {
+              ...node.data.raw,
+              properties: {
+                ...(node.data.raw.properties ?? {}),
+                x: nextPosition.x,
+                y: nextPosition.y,
+              },
+            },
+          },
           position: { x: nextPosition.x, y: nextPosition.y },
         };
       });
@@ -260,6 +297,87 @@ export const useGraphStore = create<GraphStore>((set) => ({
 
   setError: (error) => {
     set({ error });
+  },
+
+  startGraphSession: () => {
+    let nextSessionID = 0;
+
+    set((state) => {
+      nextSessionID = state.graphSessionId + 1;
+      return {
+        graphSessionId: nextSessionID,
+        undoStack: [],
+        redoStack: [],
+      };
+    });
+
+    return nextSessionID;
+  },
+
+  clearHistory: () => {
+    set({
+      undoStack: [],
+      redoStack: [],
+    });
+  },
+
+  pushHistoryEntry: (entry) => {
+    set((state) => ({
+      undoStack: [...state.undoStack, entry],
+      redoStack: [],
+    }));
+  },
+
+  popUndoHistoryEntry: () => {
+    let entry: GraphHistoryEntry | undefined;
+
+    set((state) => {
+      entry = state.undoStack[state.undoStack.length - 1];
+      if (!entry) {
+        return state;
+      }
+
+      return {
+        undoStack: state.undoStack.slice(0, -1),
+      };
+    });
+
+    return entry;
+  },
+
+  pushRedoHistoryEntry: (entry) => {
+    set((state) => ({
+      redoStack: [...state.redoStack, entry],
+    }));
+  },
+
+  popRedoHistoryEntry: () => {
+    let entry: GraphHistoryEntry | undefined;
+
+    set((state) => {
+      entry = state.redoStack[state.redoStack.length - 1];
+      if (!entry) {
+        return state;
+      }
+
+      return {
+        redoStack: state.redoStack.slice(0, -1),
+      };
+    });
+
+    return entry;
+  },
+
+  restoreUndoHistoryEntry: (entry) => {
+    set((state) => ({
+      undoStack: [...state.undoStack, entry],
+    }));
+  },
+
+  restoreRedoHistoryEntry: (entry) => {
+    set((state) => ({
+      redoStack: [...state.redoStack, entry],
+    }));
   },
 
   fetchFocusGraph: async (focusNodeId, depth = 1, signal) => {

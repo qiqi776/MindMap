@@ -11,47 +11,21 @@ import {
 import type { Dispatch, SetStateAction } from 'react';
 import type { Edge, Node, NodeDragHandler, XYPosition } from 'reactflow';
 
+import type { FocusGraphRecord, GraphEdgeRecord, GraphNodeRecord } from '@/contracts/graph';
 import type { FocusNodeAnchor } from '@/lib/graphUtils';
 import { GraphApiError, updateGraphNodePosition } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
 
-export interface GraphNodeVO {
-  id: string;
-  type: string;
-  content: string;
-  properties?: Record<string, unknown> | null;
-  created_at?: string;
-  updated_at?: string;
-  deleted_at?: string | null;
-}
-
-export interface GraphEdgeVO {
-  id: string;
-  source_id: string;
-  target_id: string;
-  relation_type: string;
-  weight: number;
-  properties?: Record<string, unknown> | null;
-  created_at?: string;
-  updated_at?: string;
-  deleted_at?: string | null;
-}
-
-export interface GraphVO {
-  nodes: GraphNodeVO[];
-  edges: GraphEdgeVO[];
-}
-
 export interface MindMapNodeData {
   label: string;
   entityType: string;
-  raw: GraphNodeVO;
+  raw: GraphNodeRecord;
 }
 
 export interface MindMapEdgeData {
   relationType: string;
   weight: number;
-  raw: GraphEdgeVO;
+  raw: GraphEdgeRecord;
 }
 
 export type MindMapNode = Node<MindMapNodeData>;
@@ -73,6 +47,10 @@ export type ForceLinkDatum = SimulationLinkDatum<ForceNodeDatum> & {
   edge: MindMapEdge;
   weight: number;
 };
+
+export type GraphVO = FocusGraphRecord;
+export type GraphNodeVO = GraphNodeRecord;
+export type GraphEdgeVO = GraphEdgeRecord;
 
 export interface UseForceLayoutOptions {
   topologyNodes: MindMapNode[];
@@ -210,6 +188,17 @@ export function useForceLayout({
 
         return {
           ...node,
+          data: {
+            ...node.data,
+            raw: {
+              ...node.data.raw,
+              properties: {
+                ...(node.data.raw.properties ?? {}),
+                x: nextX,
+                y: nextY,
+              },
+            },
+          },
           position: { x: nextX, y: nextY },
         };
       });
@@ -431,6 +420,26 @@ export function useForceLayout({
     datum.fx = null;
     datum.fy = null;
 
+    setNodes((currentNodes) => currentNodes.map((currentNode) => {
+      if (currentNode.id !== positionedNode.id) {
+        return currentNode;
+      }
+
+      return {
+        ...currentNode,
+        data: {
+          ...currentNode.data,
+          raw: {
+            ...currentNode.data.raw,
+            properties: {
+              ...(currentNode.data.raw.properties ?? {}),
+              x: positionedNode.position.x,
+              y: positionedNode.position.y,
+            },
+          },
+        },
+      };
+    }));
     useGraphStore.getState().updateNodePosition(positionedNode.id, positionedNode.position.x, positionedNode.position.y);
     useGraphStore.getState().setError(null);
 

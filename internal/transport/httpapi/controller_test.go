@@ -27,31 +27,38 @@ func (s *stubQueryService) FetchFocusGraph(ctx context.Context, focusNodeID stri
 }
 
 type stubMutationService struct {
-	deleteNodeID         string
-	deleteNodeErr        error
-	deleteEdgeID         string
-	deleteEdgeErr        error
-	updateNodeID         string
-	updateNodeContent    *string
-	updateNodeProperties model.JSONDocument
-	updateNodeErr        error
+	deleteNodeID        string
+	deleteNodeErr       error
+	deleteNodeSnapshot  *model.NodeDeletionSnapshot
+	deleteEdgeID        string
+	deleteEdgeErr       error
+	patchNodeID         string
+	patchNodeContent    *string
+	patchNodeProperties map[string]any
+	patchNodeErr        error
 }
 
-func (s *stubMutationService) CreateNode(ctx context.Context, node *model.Node) error {
-	return nil
+func (s *stubMutationService) CreateNode(ctx context.Context, node *model.Node) (*model.Node, error) {
+	return node, nil
 }
 
-func (s *stubMutationService) CreateEdge(ctx context.Context, edge *model.Edge) error {
-	return nil
+func (s *stubMutationService) CreateEdge(ctx context.Context, edge *model.Edge) (*model.Edge, error) {
+	return edge, nil
 }
 
-func (s *stubMutationService) GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*model.Node, error) {
-	return nil, nil
-}
-
-func (s *stubMutationService) DeleteNode(ctx context.Context, nodeID string) error {
+func (s *stubMutationService) DeleteNode(ctx context.Context, nodeID string) (*model.NodeDeletionSnapshot, error) {
 	s.deleteNodeID = nodeID
-	return s.deleteNodeErr
+	if s.deleteNodeErr != nil {
+		return nil, s.deleteNodeErr
+	}
+
+	if s.deleteNodeSnapshot != nil {
+		return s.deleteNodeSnapshot, nil
+	}
+
+	return &model.NodeDeletionSnapshot{
+		Node: &model.Node{ID: nodeID, Type: "text", Content: "deleted", Properties: model.JSONDocument(`{"x":0,"y":0}`)},
+	}, nil
 }
 
 func (s *stubMutationService) DeleteEdge(ctx context.Context, edgeID string) error {
@@ -59,15 +66,48 @@ func (s *stubMutationService) DeleteEdge(ctx context.Context, edgeID string) err
 	return s.deleteEdgeErr
 }
 
-func (s *stubMutationService) UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error {
-	s.updateNodeID = nodeID
-	s.updateNodeContent = content
-	s.updateNodeProperties = append(model.JSONDocument(nil), properties...)
-	return s.updateNodeErr
+func (s *stubMutationService) PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error) {
+	s.patchNodeID = nodeID
+	s.patchNodeContent = patch.Content
+	if patch.PropertyPatch != nil {
+		s.patchNodeProperties = make(map[string]any, len(patch.PropertyPatch))
+		for key, value := range patch.PropertyPatch {
+			s.patchNodeProperties[key] = value
+		}
+	}
+	if s.patchNodeErr != nil {
+		return nil, s.patchNodeErr
+	}
+
+	content := "existing node"
+	if patch.Content != nil {
+		content = *patch.Content
+	}
+
+	properties := model.JSONDocument(`{}`)
+	if patch.PropertyPatch != nil {
+		encodedProperties, err := json.Marshal(patch.PropertyPatch)
+		if err != nil {
+			return nil, err
+		}
+		properties = model.JSONDocument(encodedProperties)
+	}
+
+	return &model.Node{
+		ID:         nodeID,
+		Type:       "text",
+		Content:    content,
+		Properties: properties,
+	}, nil
 }
 
-func (s *stubMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error {
-	return nil
+func (s *stubMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) (*model.Node, error) {
+	return &model.Node{
+		ID:         nodeID,
+		Type:       "text",
+		Content:    "positioned",
+		Properties: model.JSONDocument(`{"x":120.5,"y":240.25}`),
+	}, nil
 }
 
 func TestGetFocusGraphUsesURITagNameInValidationError(t *testing.T) {
@@ -132,7 +172,7 @@ func TestSanitizedStackOmitsWorkspacePath(t *testing.T) {
 	}
 }
 
-func TestUpdateNodePreservesNilContentForPartialUpdate(t *testing.T) {
+func TestPatchNodePreservesNilContentForPartialUpdate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mutationService := &stubMutationService{}
@@ -141,30 +181,31 @@ func TestUpdateNodePreservesNilContentForPartialUpdate(t *testing.T) {
 	RegisterGraphRoutes(engine, controller, nil)
 
 	requestBody := []byte(`{"properties":{"x":120.5,"y":240.25}}`)
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/11111111-1111-1111-1111-111111111111", bytes.NewReader(requestBody))
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/nodes/11111111-1111-1111-1111-111111111111", bytes.NewReader(requestBody))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
 	engine.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	assert.Equal(t, "11111111-1111-1111-1111-111111111111", mutationService.updateNodeID)
-	assert.Nil(t, mutationService.updateNodeContent)
-	assert.JSONEq(t, `{"x":120.5,"y":240.25}`, string(mutationService.updateNodeProperties))
+	assert.Equal(t, "11111111-1111-1111-1111-111111111111", mutationService.patchNodeID)
+	assert.Nil(t, mutationService.patchNodeContent)
+	assert.Equal(t, 120.5, mutationService.patchNodeProperties["x"])
+	assert.Equal(t, 240.25, mutationService.patchNodeProperties["y"])
 
 	var envelope Response[map[string]any]
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
 	assert.Equal(t, BusinessCodeSuccess, envelope.Code)
 	assert.Equal(t, "success", envelope.Message)
 	assert.Equal(t, "11111111-1111-1111-1111-111111111111", envelope.Data["id"])
-	assert.Equal(t, "", envelope.Data["content"])
+	assert.Equal(t, "existing node", envelope.Data["content"])
 	properties, ok := envelope.Data["properties"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, 120.5, properties["x"])
 	assert.Equal(t, 240.25, properties["y"])
 }
 
-func TestUpdateNodePassesExplicitEmptyStringContent(t *testing.T) {
+func TestPatchNodePassesExplicitEmptyStringContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mutationService := &stubMutationService{}
@@ -173,16 +214,16 @@ func TestUpdateNodePassesExplicitEmptyStringContent(t *testing.T) {
 	RegisterGraphRoutes(engine, controller, nil)
 
 	requestBody := []byte(`{"content":"","properties":{"shape":"pill"}}`)
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/11111111-1111-1111-1111-111111111111", bytes.NewReader(requestBody))
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/nodes/11111111-1111-1111-1111-111111111111", bytes.NewReader(requestBody))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
 	engine.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.NotNil(t, mutationService.updateNodeContent)
-	assert.Equal(t, "", *mutationService.updateNodeContent)
-	assert.JSONEq(t, `{"shape":"pill"}`, string(mutationService.updateNodeProperties))
+	require.NotNil(t, mutationService.patchNodeContent)
+	assert.Equal(t, "", *mutationService.patchNodeContent)
+	assert.Equal(t, "pill", mutationService.patchNodeProperties["shape"])
 }
 
 func TestDeleteNodeDelegatesToMutationService(t *testing.T) {

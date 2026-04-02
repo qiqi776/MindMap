@@ -28,25 +28,22 @@ type GraphQueryService interface {
 // by GraphController for node and edge mutation endpoints.
 type GraphMutationService interface {
 	// CreateNode persists a newly submitted node aggregate.
-	CreateNode(ctx context.Context, node *model.Node) error
+	CreateNode(ctx context.Context, node *model.Node) (*model.Node, error)
 
 	// CreateEdge persists a newly submitted edge aggregate.
-	CreateEdge(ctx context.Context, edge *model.Edge) error
-
-	// GetNodesByIDs loads the referenced nodes required for transport-level validation.
-	GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*model.Node, error)
+	CreateEdge(ctx context.Context, edge *model.Edge) (*model.Edge, error)
 
 	// DeleteNode removes one node aggregate identified by nodeID.
-	DeleteNode(ctx context.Context, nodeID string) error
+	DeleteNode(ctx context.Context, nodeID string) (*model.NodeDeletionSnapshot, error)
 
 	// DeleteEdge removes one edge aggregate identified by edgeID.
 	DeleteEdge(ctx context.Context, edgeID string) error
 
-	// UpdateNode applies a partial update to a node aggregate.
-	UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error
+	// PatchNode applies a partial update to a node aggregate.
+	PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error)
 
 	// UpdateNodePosition persists the latest node coordinates emitted by the client.
-	UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error
+	UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) (*model.Node, error)
 }
 
 // GraphController exposes the HTTP handlers for graph traversal and mutation.
@@ -147,12 +144,13 @@ func (ctl *GraphController) CreateNode(c *gin.Context) {
 		Properties: properties,
 	}
 
-	if err := ctl.mutationService.CreateNode(c.Request.Context(), node); err != nil {
+	persistedNode, err := ctl.mutationService.CreateNode(c.Request.Context(), node)
+	if err != nil {
 		_ = c.Error(err)
 		return
 	}
 
-	Created(c, toNodeVO(node))
+	Created(c, toNodeVO(persistedNode))
 }
 
 // CreateEdge handles POST /api/v1/edges.
@@ -168,34 +166,6 @@ func (ctl *GraphController) CreateEdge(c *gin.Context) {
 	var request CreateEdgeRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, formatBindingError(&request, err))
-		return
-	}
-
-	referencedNodes, err := ctl.mutationService.GetNodesByIDs(
-		c.Request.Context(),
-		[]string{request.SourceID, request.TargetID},
-	)
-	if err != nil {
-		_ = c.Error(err)
-		return
-	}
-
-	nodeSet := make(map[string]struct{}, len(referencedNodes))
-	for _, node := range referencedNodes {
-		if node == nil || node.ID == "" {
-			continue
-		}
-
-		nodeSet[node.ID] = struct{}{}
-	}
-
-	if _, exists := nodeSet[request.SourceID]; !exists {
-		Error(c, http.StatusNotFound, BusinessCodeNotFound, "source node not found")
-		return
-	}
-
-	if _, exists := nodeSet[request.TargetID]; !exists {
-		Error(c, http.StatusNotFound, BusinessCodeNotFound, "target node not found")
 		return
 	}
 
@@ -219,12 +189,13 @@ func (ctl *GraphController) CreateEdge(c *gin.Context) {
 		Properties:   properties,
 	}
 
-	if err := ctl.mutationService.CreateEdge(c.Request.Context(), edge); err != nil {
+	persistedEdge, err := ctl.mutationService.CreateEdge(c.Request.Context(), edge)
+	if err != nil {
 		_ = c.Error(err)
 		return
 	}
 
-	Created(c, toEdgeVO(edge))
+	Created(c, toEdgeVO(persistedEdge))
 }
 
 // DeleteNode handles DELETE /api/v1/nodes/:node_id.
@@ -243,12 +214,13 @@ func (ctl *GraphController) DeleteNode(c *gin.Context) {
 		return
 	}
 
-	if err := ctl.mutationService.DeleteNode(c.Request.Context(), uriRequest.NodeID); err != nil {
+	snapshot, err := ctl.mutationService.DeleteNode(c.Request.Context(), uriRequest.NodeID)
+	if err != nil {
 		_ = c.Error(err)
 		return
 	}
 
-	Success(c, nil)
+	Success(c, toNodeDeletionSnapshotVO(snapshot))
 }
 
 // DeleteEdge handles DELETE /api/v1/edges/:edge_id.
@@ -275,7 +247,7 @@ func (ctl *GraphController) DeleteEdge(c *gin.Context) {
 	Success(c, nil)
 }
 
-// UpdateNode handles PUT /api/v1/nodes/:node_id.
+// UpdateNode handles PATCH /api/v1/nodes/:node_id.
 //
 // Example request:
 // {"content":"updated node","properties":{"x":120.5,"y":240.25}}
@@ -300,26 +272,17 @@ func (ctl *GraphController) UpdateNode(c *gin.Context) {
 		return
 	}
 
-	properties, err := marshalJSONDocument(request.Properties)
-	if err != nil {
-		Error(c, http.StatusBadRequest, BusinessCodeBadRequest, "properties must be valid JSON")
-		return
+	patch := model.NodePatch{
+		Content: request.Content,
+	}
+	if request.Properties != nil {
+		patch.PropertyPatch = *request.Properties
 	}
 
-	if err := ctl.mutationService.UpdateNode(c.Request.Context(), uriRequest.NodeID, request.Content, properties); err != nil {
+	node, err := ctl.mutationService.PatchNode(c.Request.Context(), uriRequest.NodeID, patch)
+	if err != nil {
 		_ = c.Error(err)
 		return
-	}
-
-	nodeContent := ""
-	if request.Content != nil {
-		nodeContent = *request.Content
-	}
-
-	node := &model.Node{
-		ID:         uriRequest.NodeID,
-		Content:    nodeContent,
-		Properties: properties,
 	}
 
 	Success(c, toNodeVO(node))
@@ -350,13 +313,14 @@ func (ctl *GraphController) UpdateNodePosition(c *gin.Context) {
 		return
 	}
 
-	if err := ctl.mutationService.UpdateNodePosition(c.Request.Context(), uriRequest.NodeID, *request.X, *request.Y); err != nil {
+	node, err := ctl.mutationService.UpdateNodePosition(c.Request.Context(), uriRequest.NodeID, *request.X, *request.Y)
+	if err != nil {
 		_ = c.Error(err)
 		return
 	}
 
 	Success(c, NodePositionVO{
-		NodeID: uriRequest.NodeID,
+		NodeID: node.ID,
 		X:      *request.X,
 		Y:      *request.Y,
 	})
@@ -430,7 +394,6 @@ func toNodeVO(node *model.Node) NodeVO {
 		Properties: toRawJSON(node.Properties),
 		CreatedAt:  node.CreatedAt,
 		UpdatedAt:  node.UpdatedAt,
-		DeletedAt:  node.DeletedAt,
 	}
 }
 
@@ -450,7 +413,28 @@ func toEdgeVO(edge *model.Edge) EdgeVO {
 		Properties:   toRawJSON(edge.Properties),
 		CreatedAt:    edge.CreatedAt,
 		UpdatedAt:    edge.UpdatedAt,
-		DeletedAt:    edge.DeletedAt,
+	}
+}
+
+func toNodeDeletionSnapshotVO(snapshot *model.NodeDeletionSnapshot) NodeDeletionSnapshotVO {
+	if snapshot == nil {
+		return NodeDeletionSnapshotVO{
+			Edges: make([]EdgeVO, 0),
+		}
+	}
+
+	edges := make([]EdgeVO, 0, len(snapshot.Edges))
+	for _, edge := range snapshot.Edges {
+		if edge == nil {
+			continue
+		}
+
+		edges = append(edges, toEdgeVO(edge))
+	}
+
+	return NodeDeletionSnapshotVO{
+		Node:  toNodeVO(snapshot.Node),
+		Edges: edges,
 	}
 }
 

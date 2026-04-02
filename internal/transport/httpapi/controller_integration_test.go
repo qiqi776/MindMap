@@ -38,43 +38,82 @@ func (s *integrationQueryService) FetchFocusGraph(ctx context.Context, focusNode
 }
 
 type integrationMutationService struct {
-	nodesToReturn         []*model.Node
-	getNodesErr           error
 	createNodeErr         error
 	createEdgeErr         error
+	patchNodeErr          error
 	updateNodePositionErr error
+	deleteNodeErr         error
+	deleteEdgeErr         error
 }
 
-func (s *integrationMutationService) CreateNode(ctx context.Context, node *model.Node) error {
-	return s.createNodeErr
-}
-
-func (s *integrationMutationService) CreateEdge(ctx context.Context, edge *model.Edge) error {
-	return s.createEdgeErr
-}
-
-func (s *integrationMutationService) GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*model.Node, error) {
-	if s.getNodesErr != nil {
-		return nil, s.getNodesErr
+func (s *integrationMutationService) CreateNode(ctx context.Context, node *model.Node) (*model.Node, error) {
+	if s.createNodeErr != nil {
+		return nil, s.createNodeErr
 	}
 
-	return s.nodesToReturn, nil
+	return node, nil
 }
 
-func (s *integrationMutationService) DeleteNode(ctx context.Context, nodeID string) error {
-	return nil
+func (s *integrationMutationService) CreateEdge(ctx context.Context, edge *model.Edge) (*model.Edge, error) {
+	if s.createEdgeErr != nil {
+		return nil, s.createEdgeErr
+	}
+
+	return edge, nil
+}
+
+func (s *integrationMutationService) DeleteNode(ctx context.Context, nodeID string) (*model.NodeDeletionSnapshot, error) {
+	if s.deleteNodeErr != nil {
+		return nil, s.deleteNodeErr
+	}
+
+	return &model.NodeDeletionSnapshot{
+		Node: &model.Node{ID: nodeID, Type: "text", Content: "deleted", Properties: model.JSONDocument(`{"x":0,"y":0}`)},
+	}, nil
 }
 
 func (s *integrationMutationService) DeleteEdge(ctx context.Context, edgeID string) error {
-	return nil
+	return s.deleteEdgeErr
 }
 
-func (s *integrationMutationService) UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error {
-	return nil
+func (s *integrationMutationService) PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error) {
+	if s.patchNodeErr != nil {
+		return nil, s.patchNodeErr
+	}
+
+	properties := model.JSONDocument(`{}`)
+	if patch.PropertyPatch != nil {
+		encodedProperties, err := json.Marshal(patch.PropertyPatch)
+		if err != nil {
+			return nil, err
+		}
+		properties = model.JSONDocument(encodedProperties)
+	}
+
+	content := "patched"
+	if patch.Content != nil {
+		content = *patch.Content
+	}
+
+	return &model.Node{
+		ID:         nodeID,
+		Type:       "text",
+		Content:    content,
+		Properties: properties,
+	}, nil
 }
 
-func (s *integrationMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error {
-	return s.updateNodePositionErr
+func (s *integrationMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) (*model.Node, error) {
+	if s.updateNodePositionErr != nil {
+		return nil, s.updateNodePositionErr
+	}
+
+	return &model.Node{
+		ID:         nodeID,
+		Type:       "text",
+		Content:    "positioned",
+		Properties: model.JSONDocument(`{"x":120.5,"y":240.25}`),
+	}, nil
 }
 
 func TestGetFocusGraphReturnsArrayContractForFrontend(t *testing.T) {
@@ -161,21 +200,15 @@ func TestGraphRoutesMapDomainAndInfrastructureErrors(t *testing.T) {
 			wantMessage:     "request timed out",
 		},
 		{
-			name:         "cyclic dependency becomes conflict response",
-			queryService: &integrationQueryService{},
-			mutationService: &integrationMutationService{
-				nodesToReturn: []*model.Node{
-					{ID: focusNodeID, Type: "text", Content: "source"},
-					{ID: linkedNodeID, Type: "text", Content: "target"},
-				},
-				createEdgeErr: appservice.ErrCyclicDependency,
-			},
-			method:      http.MethodPost,
-			target:      "/api/v1/edges",
-			body:        validEdgeRequest,
-			wantStatus:  http.StatusConflict,
-			wantCode:    BusinessCodeConflict,
-			wantMessage: "cyclic dependency detected",
+			name:            "cyclic dependency becomes conflict response",
+			queryService:    &integrationQueryService{},
+			mutationService: &integrationMutationService{createEdgeErr: appservice.ErrCyclicDependency},
+			method:          http.MethodPost,
+			target:          "/api/v1/edges",
+			body:            validEdgeRequest,
+			wantStatus:      http.StatusConflict,
+			wantCode:        BusinessCodeConflict,
+			wantMessage:     "cyclic dependency detected",
 		},
 		{
 			name:            "panic is intercepted by recovery middleware",
@@ -186,6 +219,17 @@ func TestGraphRoutesMapDomainAndInfrastructureErrors(t *testing.T) {
 			wantStatus:      http.StatusInternalServerError,
 			wantCode:        BusinessCodeInternalError,
 			wantMessage:     "internal server error",
+		},
+		{
+			name:            "source node error becomes not found",
+			queryService:    &integrationQueryService{},
+			mutationService: &integrationMutationService{createEdgeErr: appservice.ErrSourceNodeNotFound},
+			method:          http.MethodPost,
+			target:          "/api/v1/edges",
+			body:            validEdgeRequest,
+			wantStatus:      http.StatusNotFound,
+			wantCode:        BusinessCodeNotFound,
+			wantMessage:     "source node not found",
 		},
 	}
 

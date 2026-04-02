@@ -120,7 +120,6 @@ export function MindNode(props: NodeProps<MindMapNodeData>): ReactElement {
 
       await updateGraphNode(id, {
         content: nextContent,
-        properties: data.raw.properties ?? {},
       });
 
       if (beforeSnapshot) {
@@ -131,13 +130,11 @@ export function MindNode(props: NodeProps<MindMapNodeData>): ReactElement {
           undoRemote: async () => {
             await updateGraphNode(id, {
               content: previousContent,
-              properties: data.raw.properties ?? {},
             });
           },
           redoRemote: async () => {
             await updateGraphNode(id, {
               content: nextContent,
-              properties: data.raw.properties ?? {},
             });
           },
         });

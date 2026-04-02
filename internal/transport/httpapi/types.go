@@ -3,8 +3,6 @@ package httpapi
 import (
 	"encoding/json"
 	"time"
-
-	model "treemindmap/internal/graph"
 )
 
 // GraphVO is the HTTP response view returned to front-end graph clients.
@@ -27,7 +25,6 @@ type NodeVO struct {
 	Properties json.RawMessage `json:"properties"`
 	CreatedAt  time.Time       `json:"created_at"`
 	UpdatedAt  time.Time       `json:"updated_at"`
-	DeletedAt  *time.Time      `json:"deleted_at,omitempty"`
 }
 
 // EdgeVO defines the edge payload returned by the HTTP API.
@@ -40,7 +37,12 @@ type EdgeVO struct {
 	Properties   json.RawMessage `json:"properties"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
-	DeletedAt    *time.Time      `json:"deleted_at,omitempty"`
+}
+
+// NodeDeletionSnapshotVO defines the payload returned after a successful node deletion.
+type NodeDeletionSnapshotVO struct {
+	Node  NodeVO   `json:"node"`
+	Edges []EdgeVO `json:"edges"`
 }
 
 // NodePositionVO defines the HTTP response for a successful position update.
@@ -84,8 +86,9 @@ type UpdateNodeRequest struct {
 	// client did not provide the field in the JSON payload.
 	Content *string `json:"content"`
 
-	// Properties carries the replacement JSON property document for the node.
-	Properties model.JSONDocument `json:"properties"`
+	// Properties carries the partial JSON patch applied onto the stored node
+	// properties document. Omitted means "leave unchanged".
+	Properties *map[string]any `json:"properties"`
 }
 
 // NodeURIRequest binds the :node_id route parameter for node-scoped handlers.

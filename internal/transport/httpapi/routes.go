@@ -18,7 +18,7 @@ func RegisterGraphRoutes(engine *gin.Engine, controller *GraphController, logger
 	apiV1 := engine.Group("/api/v1")
 	apiV1.GET("/graph/:node_id", controller.GetFocusGraph)
 	apiV1.POST("/nodes", controller.CreateNode)
-	apiV1.PUT("/nodes/:node_id", controller.UpdateNode)
+	apiV1.PATCH("/nodes/:node_id", controller.UpdateNode)
 	apiV1.DELETE("/nodes/:node_id", controller.DeleteNode)
 	apiV1.POST("/edges", controller.CreateEdge)
 	apiV1.DELETE("/edges/:edge_id", controller.DeleteEdge)

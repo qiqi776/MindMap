@@ -1,8 +1,11 @@
 import { useEffect } from 'react';
 
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
+import type { GraphNodeRecord } from '@/contracts/graph';
 import type { MindMapNode } from '@/hooks/useForceLayout';
+import type { GraphHistoryEntry, GraphHistorySnapshot } from '@/lib/graphHistory';
 import { toFlowNode, toSemanticEdge, type EdgeLike } from '@/lib/graphViewModel';
+import { DEFAULT_HIERARCHY_RELATION_TYPE, isHierarchicalRelationType } from '@/lib/relationRegistry';
 import {
   createGraphEdge,
   createGraphNode,
@@ -11,7 +14,6 @@ import {
   GraphApiError,
   type CreateGraphEdgeRequest,
   type CreateGraphNodeRequest,
-  type GraphNodeRecord,
 } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
 
@@ -23,27 +25,9 @@ interface GraphShortcutRuntime {
   getViewportCenter: () => { x: number; y: number };
 }
 
-interface GraphHistorySnapshot {
-  nodes: MindMapNode[];
-  edges: SemanticMindMapEdge[];
-  selectedNodeId: string | null;
-  selectedEdgeId: string | null;
-  focusNodeId: string | null;
-}
-
-interface GraphHistoryEntry {
-  label: string;
-  undoSnapshot: GraphHistorySnapshot;
-  redoSnapshot: GraphHistorySnapshot;
-  undoRemote?: () => Promise<void>;
-  redoRemote?: () => Promise<void>;
-}
-
 let graphShortcutRuntime: GraphShortcutRuntime | null = null;
-const undoStack: GraphHistoryEntry[] = [];
-const redoStack: GraphHistoryEntry[] = [];
 
-const DEFAULT_RELATION_TYPE = 'CHILD';
+const DEFAULT_RELATION_TYPE = DEFAULT_HIERARCHY_RELATION_TYPE;
 const DEFAULT_NODE_TYPE = 'text';
 const DEFAULT_NODE_CONTENT = '新节点';
 const NODE_OFFSET_X = 50;
@@ -113,16 +97,15 @@ function applyGraphHistorySnapshot(snapshot: GraphHistorySnapshot): void {
 }
 
 export function pushGraphHistoryEntry(entry: GraphHistoryEntry): void {
-  undoStack.push(entry);
-  redoStack.length = 0;
+  useGraphStore.getState().pushHistoryEntry(entry);
 }
 
 export function canUndoGraphCommand(): boolean {
-  return undoStack.length > 0;
+  return useGraphStore.getState().undoStack.length > 0;
 }
 
 export function canRedoGraphCommand(): boolean {
-  return redoStack.length > 0;
+  return useGraphStore.getState().redoStack.length > 0;
 }
 
 function createClientUUID(): string {
@@ -183,18 +166,6 @@ function buildCreateNodeRequest(node: GraphNodeRecord): CreateGraphNodeRequest {
 
 function buildErrorMessage(error: unknown, fallbackMessage: string): string {
   return error instanceof GraphApiError ? error.message : fallbackMessage;
-}
-
-function buildNodeRecordFromMindNode(node: MindMapNode): GraphNodeRecord {
-  return {
-    ...node.data.raw,
-    content: node.data.raw.content,
-    properties: {
-      ...(node.data.raw.properties ?? {}),
-      x: node.position.x,
-      y: node.position.y,
-    },
-  };
 }
 
 function buildEdgeRequestFromMindMapEdge(edge: SemanticMindMapEdge): CreateGraphEdgeRequest {
@@ -345,14 +316,17 @@ export async function createSiblingNodeCommand(selectedNodeId: string): Promise<
     return;
   }
 
-  const currentEdges = runtime.getEdges();
-  let parentNodeId: string | null = null;
-  for (const edge of currentEdges) {
-    if (edge.target === selectedNodeId) {
-      parentNodeId = edge.source;
-      break;
-    }
+  const hierarchicalParents = runtime.getEdges().filter((edge) => (
+    edge.target === selectedNodeId
+    && isHierarchicalRelationType(edge.data?.raw?.relation_type ?? edge.data?.relationType ?? '')
+  ));
+
+  if (hierarchicalParents.length > 1) {
+    useGraphStore.getState().setError('当前节点存在多个层级父节点，无法直接创建兄弟节点');
+    return;
   }
+
+  const parentNodeId = hierarchicalParents[0]?.source ?? null;
 
   await createNodeCommand({
     x: computeInitialOffset(selectedNode.position.x),
@@ -382,7 +356,6 @@ async function deleteSelectedNode(selectedNodeId: string): Promise<void> {
   const previousSelectedEdgeId = useGraphStore.getState().selectedEdgeId;
   const previousFocusNodeId = useGraphStore.getState().focusNodeId;
   const deletedNode = previousNodes.find((node) => node.id === selectedNodeId);
-  const deletedEdges = previousEdges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId);
 
   useGraphStore.getState().removeNode(selectedNodeId);
   runtime.commitTopology(useGraphStore.getState().nodes, useGraphStore.getState().edges);
@@ -390,7 +363,7 @@ async function deleteSelectedNode(selectedNodeId: string): Promise<void> {
   const afterSnapshot = captureGraphHistorySnapshot();
 
   try {
-    await deleteGraphNode(selectedNodeId);
+    const deletionSnapshot = await deleteGraphNode(selectedNodeId);
 
     if (beforeSnapshot && afterSnapshot && deletedNode) {
       pushGraphHistoryEntry({
@@ -398,9 +371,21 @@ async function deleteSelectedNode(selectedNodeId: string): Promise<void> {
         undoSnapshot: beforeSnapshot,
         redoSnapshot: afterSnapshot,
         undoRemote: async () => {
-          await createGraphNode(buildCreateNodeRequest(buildNodeRecordFromMindNode(deletedNode)));
-          for (const edge of deletedEdges) {
-            await createGraphEdge(buildEdgeRequestFromMindMapEdge(edge));
+          await createGraphNode({
+            id: deletionSnapshot.node.id,
+            type: deletionSnapshot.node.type,
+            content: deletionSnapshot.node.content,
+            properties: deletionSnapshot.node.properties ?? {},
+          });
+          for (const edge of deletionSnapshot.edges) {
+            await createGraphEdge({
+              id: edge.id,
+              source_id: edge.source_id,
+              target_id: edge.target_id,
+              relation_type: edge.relation_type,
+              weight: edge.weight,
+              properties: edge.properties ?? {},
+            });
           }
         },
         redoRemote: async () => {
@@ -483,7 +468,7 @@ export async function deleteSelectionCommand(
 }
 
 export async function undoGraphCommand(): Promise<void> {
-  const entry = undoStack.pop();
+  const entry = useGraphStore.getState().popUndoHistoryEntry();
   if (!entry) {
     return;
   }
@@ -494,16 +479,16 @@ export async function undoGraphCommand(): Promise<void> {
     if (entry.undoRemote) {
       await entry.undoRemote();
     }
-    redoStack.push(entry);
+    useGraphStore.getState().pushRedoHistoryEntry(entry);
   } catch (error) {
     applyGraphHistorySnapshot(entry.redoSnapshot);
-    undoStack.push(entry);
+    useGraphStore.getState().restoreUndoHistoryEntry(entry);
     useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to undo graph command'));
   }
 }
 
 export async function redoGraphCommand(): Promise<void> {
-  const entry = redoStack.pop();
+  const entry = useGraphStore.getState().popRedoHistoryEntry();
   if (!entry) {
     return;
   }
@@ -514,10 +499,10 @@ export async function redoGraphCommand(): Promise<void> {
     if (entry.redoRemote) {
       await entry.redoRemote();
     }
-    undoStack.push(entry);
+    useGraphStore.getState().restoreUndoHistoryEntry(entry);
   } catch (error) {
     applyGraphHistorySnapshot(entry.undoSnapshot);
-    redoStack.push(entry);
+    useGraphStore.getState().restoreRedoHistoryEntry(entry);
     useGraphStore.getState().setError(buildErrorMessage(error, 'Failed to redo graph command'));
   }
 }

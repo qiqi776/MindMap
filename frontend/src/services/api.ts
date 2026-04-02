@@ -1,60 +1,29 @@
+import type {
+  CreateGraphEdgeRequest,
+  CreateGraphNodeRequest,
+  FocusGraphRecord,
+  GraphEdgeRecord,
+  GraphNodeRecord,
+  NodeDeletionSnapshotRecord,
+  PatchGraphNodeRequest,
+  UpdateGraphNodePositionRequest,
+} from '@/contracts/graph';
+
+export type {
+  CreateGraphEdgeRequest,
+  CreateGraphNodeRequest,
+  FocusGraphRecord,
+  GraphEdgeRecord,
+  GraphNodeRecord,
+  NodeDeletionSnapshotRecord,
+  PatchGraphNodeRequest,
+  UpdateGraphNodePositionRequest,
+} from '@/contracts/graph';
+
 export interface ApiEnvelope<TData> {
   code: number;
   message: string;
   data: TData;
-}
-
-export interface GraphNodeRecord {
-  id: string;
-  type: string;
-  content: string;
-  properties?: Record<string, unknown> | null;
-  created_at?: string;
-  updated_at?: string;
-  deleted_at?: string | null;
-}
-
-export interface GraphEdgeRecord {
-  id: string;
-  source_id: string;
-  target_id: string;
-  relation_type: string;
-  weight: number;
-  properties?: Record<string, unknown> | null;
-  created_at?: string;
-  updated_at?: string;
-  deleted_at?: string | null;
-}
-
-export interface FocusGraphRecord {
-  nodes: GraphNodeRecord[];
-  edges: GraphEdgeRecord[];
-}
-
-export interface CreateGraphNodeRequest {
-  id: string;
-  type: string;
-  content: string;
-  properties?: Record<string, unknown>;
-}
-
-export interface CreateGraphEdgeRequest {
-  id: string;
-  source_id: string;
-  target_id: string;
-  relation_type: string;
-  weight?: number;
-  properties?: Record<string, unknown>;
-}
-
-export interface UpdateGraphNodeRequest {
-  content?: string;
-  properties?: Record<string, unknown>;
-}
-
-export interface UpdateGraphNodePositionRequest {
-  x: number;
-  y: number;
 }
 
 export interface ApiRequestOptions {
@@ -259,7 +228,7 @@ export async function createGraphEdge(
 export async function deleteGraphNode(
   nodeId: string,
   options: ApiRequestOptions = {},
-): Promise<void> {
+): Promise<NodeDeletionSnapshotRecord> {
   const requestSignal = createAbortableRequestSignal(options);
 
   try {
@@ -268,7 +237,7 @@ export async function deleteGraphNode(
       signal: requestSignal.signal,
     });
 
-    const envelope = await readEnvelope<null>(response);
+    const envelope = await readEnvelope<NodeDeletionSnapshotRecord | null>(response);
     if (!response.ok) {
       throw new GraphApiError(
         envelope?.message ?? 'Request failed while deleting node',
@@ -276,6 +245,12 @@ export async function deleteGraphNode(
         envelope?.code ?? response.status,
       );
     }
+
+    if (!envelope?.data) {
+      throw new GraphApiError('Delete node response payload is empty', response.status, envelope?.code ?? response.status);
+    }
+
+    return envelope.data;
   } catch (error) {
     if (requestSignal.didTimeout()) {
       throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);
@@ -320,14 +295,14 @@ export async function deleteGraphEdge(
 
 export async function updateGraphNode(
   nodeId: string,
-  payload: UpdateGraphNodeRequest,
+  payload: PatchGraphNodeRequest,
   options: ApiRequestOptions = {},
-): Promise<void> {
+): Promise<GraphNodeRecord> {
   const requestSignal = createAbortableRequestSignal(options);
 
   try {
     const response = await fetch(`${DEFAULT_API_BASE_URL}/nodes/${nodeId}`, {
-      method: 'PUT',
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -335,7 +310,7 @@ export async function updateGraphNode(
       signal: requestSignal.signal,
     });
 
-    const envelope = await readEnvelope<null>(response);
+    const envelope = await readEnvelope<GraphNodeRecord | null>(response);
     if (!response.ok) {
       throw new GraphApiError(
         envelope?.message ?? 'Request failed while updating node',
@@ -343,6 +318,12 @@ export async function updateGraphNode(
         envelope?.code ?? response.status,
       );
     }
+
+    if (!envelope?.data) {
+      throw new GraphApiError('Node response payload is empty', response.status, envelope?.code ?? response.status);
+    }
+
+    return envelope.data;
   } catch (error) {
     if (requestSignal.didTimeout()) {
       throw new GraphApiError(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`, 408, 408);

@@ -13,12 +13,12 @@ import (
 
 type mutationRepositoryBase struct{}
 
-func (r *mutationRepositoryBase) CreateNode(ctx context.Context, node *model.Node) error {
-	return nil
+func (r *mutationRepositoryBase) CreateNode(ctx context.Context, node *model.Node) (*model.Node, error) {
+	return node, nil
 }
 
-func (r *mutationRepositoryBase) CreateEdge(ctx context.Context, edge *model.Edge) error {
-	return nil
+func (r *mutationRepositoryBase) CreateEdge(ctx context.Context, edge *model.Edge) (*model.Edge, error) {
+	return edge, nil
 }
 
 func (r *mutationRepositoryBase) GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*model.Node, error) {
@@ -33,21 +33,47 @@ func (r *mutationRepositoryBase) GetAdjoiningNodes(ctx context.Context, nodeID s
 	return nil, nil
 }
 
-type mutationRepositoryWithWrites struct {
-	mutationRepositoryBase
-	deleteNodeID         string
-	deleteNodeErr        error
-	deleteEdgeID         string
-	deleteEdgeErr        error
-	updateNodeID         string
-	updateNodeContent    *string
-	updateNodeProperties model.JSONDocument
-	updateNodeErr        error
+func (r *mutationRepositoryBase) PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error) {
+	return nil, nil
 }
 
-func (r *mutationRepositoryWithWrites) DeleteNode(ctx context.Context, nodeID string) error {
+func (r *mutationRepositoryBase) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) (*model.Node, error) {
+	return &model.Node{ID: nodeID}, nil
+}
+
+func (r *mutationRepositoryBase) DeleteNode(ctx context.Context, nodeID string) (*model.NodeDeletionSnapshot, error) {
+	return nil, nil
+}
+
+func (r *mutationRepositoryBase) DeleteEdge(ctx context.Context, edgeID string) error {
+	return nil
+}
+
+type mutationRepositoryWithWrites struct {
+	mutationRepositoryBase
+	nodeResults          []*model.Node
+	deleteNodeID         string
+	deleteNodeErr        error
+	deleteNodeSnapshot   *model.NodeDeletionSnapshot
+	deleteEdgeID         string
+	deleteEdgeErr        error
+	patchNodeID          string
+	patchNodeContent     *string
+	patchNodeProperties  map[string]any
+	patchNodeErr         error
+}
+
+func (r *mutationRepositoryWithWrites) GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*model.Node, error) {
+	return r.nodeResults, nil
+}
+
+func (r *mutationRepositoryWithWrites) DeleteNode(ctx context.Context, nodeID string) (*model.NodeDeletionSnapshot, error) {
 	r.deleteNodeID = nodeID
-	return r.deleteNodeErr
+	if r.deleteNodeErr != nil {
+		return nil, r.deleteNodeErr
+	}
+
+	return r.deleteNodeSnapshot, nil
 }
 
 func (r *mutationRepositoryWithWrites) DeleteEdge(ctx context.Context, edgeID string) error {
@@ -55,39 +81,49 @@ func (r *mutationRepositoryWithWrites) DeleteEdge(ctx context.Context, edgeID st
 	return r.deleteEdgeErr
 }
 
-func (r *mutationRepositoryWithWrites) UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error {
-	r.updateNodeID = nodeID
-	r.updateNodeContent = content
-	r.updateNodeProperties = append(model.JSONDocument(nil), properties...)
-	return r.updateNodeErr
+func (r *mutationRepositoryWithWrites) PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error) {
+	r.patchNodeID = nodeID
+	r.patchNodeContent = patch.Content
+	if patch.PropertyPatch != nil {
+		r.patchNodeProperties = make(map[string]any, len(patch.PropertyPatch))
+		for key, value := range patch.PropertyPatch {
+			r.patchNodeProperties[key] = value
+		}
+	}
+	if r.patchNodeErr != nil {
+		return nil, r.patchNodeErr
+	}
+
+	return &model.Node{ID: nodeID}, nil
 }
 
-func TestGraphMutationServiceUpdateNodeDelegatesPartialPayload(t *testing.T) {
+func TestGraphMutationServicePatchNodeDelegatesPartialPayload(t *testing.T) {
 	emptyContent := ""
 
 	testCases := []struct {
 		name            string
 		content         *string
-		properties      model.JSONDocument
+		properties      map[string]any
 		assertDelegated func(t *testing.T, repository *mutationRepositoryWithWrites)
 	}{
 		{
 			name:       "omitted content remains nil",
 			content:    nil,
-			properties: model.JSONDocument(`{"x":12,"y":34}`),
+			properties: map[string]any{"x": 12.0, "y": 34.0},
 			assertDelegated: func(t *testing.T, repository *mutationRepositoryWithWrites) {
-				assert.Nil(t, repository.updateNodeContent)
-				assert.JSONEq(t, `{"x":12,"y":34}`, string(repository.updateNodeProperties))
+				assert.Nil(t, repository.patchNodeContent)
+				assert.Equal(t, 12.0, repository.patchNodeProperties["x"])
+				assert.Equal(t, 34.0, repository.patchNodeProperties["y"])
 			},
 		},
 		{
 			name:       "explicit empty string is preserved",
 			content:    &emptyContent,
-			properties: model.JSONDocument(`{"shape":"pill"}`),
+			properties: map[string]any{"shape": "pill"},
 			assertDelegated: func(t *testing.T, repository *mutationRepositoryWithWrites) {
-				require.NotNil(t, repository.updateNodeContent)
-				assert.Equal(t, "", *repository.updateNodeContent)
-				assert.JSONEq(t, `{"shape":"pill"}`, string(repository.updateNodeProperties))
+				require.NotNil(t, repository.patchNodeContent)
+				assert.Equal(t, "", *repository.patchNodeContent)
+				assert.Equal(t, "pill", repository.patchNodeProperties["shape"])
 			},
 		},
 	}
@@ -95,15 +131,38 @@ func TestGraphMutationServiceUpdateNodeDelegatesPartialPayload(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			repository := &mutationRepositoryWithWrites{}
-			service := NewGraphMutationService(repository)
+			service := NewGraphMutationService(repository, repository, repository)
 
-			err := service.UpdateNode(context.Background(), "11111111-1111-1111-1111-111111111111", testCase.content, testCase.properties)
+			_, err := service.PatchNode(context.Background(), "11111111-1111-1111-1111-111111111111", model.NodePatch{
+				Content:       testCase.content,
+				PropertyPatch: testCase.properties,
+			})
 
 			require.NoError(t, err)
-			assert.Equal(t, "11111111-1111-1111-1111-111111111111", repository.updateNodeID)
+			assert.Equal(t, "11111111-1111-1111-1111-111111111111", repository.patchNodeID)
 			testCase.assertDelegated(t, repository)
 		})
 	}
+}
+
+func TestGraphMutationServiceCreateEdgeValidatesReferencedNodes(t *testing.T) {
+	repository := &mutationRepositoryWithWrites{
+		nodeResults: []*model.Node{
+			{ID: "11111111-1111-1111-1111-111111111111"},
+		},
+	}
+	service := NewGraphMutationService(repository, repository, repository)
+
+	_, err := service.CreateEdge(context.Background(), &model.Edge{
+		ID:           "33333333-3333-3333-3333-333333333333",
+		SourceID:     "11111111-1111-1111-1111-111111111111",
+		TargetID:     "22222222-2222-2222-2222-222222222222",
+		RelationType: "REFERENCE",
+		Weight:       1,
+	})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTargetNodeNotFound)
 }
 
 func TestGraphMutationServiceMapsRecordNotFoundErrors(t *testing.T) {
@@ -115,7 +174,8 @@ func TestGraphMutationServiceMapsRecordNotFoundErrors(t *testing.T) {
 		{
 			name: "delete node maps not found",
 			invoke: func(service *GraphMutationService) error {
-				return service.DeleteNode(context.Background(), "11111111-1111-1111-1111-111111111111")
+				_, err := service.DeleteNode(context.Background(), "11111111-1111-1111-1111-111111111111")
+				return err
 			},
 			wantError: ErrNodeNotFound,
 		},
@@ -127,9 +187,10 @@ func TestGraphMutationServiceMapsRecordNotFoundErrors(t *testing.T) {
 			wantError: ErrEdgeNotFound,
 		},
 		{
-			name: "update node maps not found",
+			name: "patch node maps not found",
 			invoke: func(service *GraphMutationService) error {
-				return service.UpdateNode(context.Background(), "33333333-3333-3333-3333-333333333333", nil, model.JSONDocument(`{}`))
+				_, err := service.PatchNode(context.Background(), "33333333-3333-3333-3333-333333333333", model.NodePatch{})
+				return err
 			},
 			wantError: ErrNodeNotFound,
 		},
@@ -140,9 +201,9 @@ func TestGraphMutationServiceMapsRecordNotFoundErrors(t *testing.T) {
 			repository := &mutationRepositoryWithWrites{
 				deleteNodeErr: gorm.ErrRecordNotFound,
 				deleteEdgeErr: gorm.ErrRecordNotFound,
-				updateNodeErr: gorm.ErrRecordNotFound,
+				patchNodeErr:  gorm.ErrRecordNotFound,
 			}
-			service := NewGraphMutationService(repository)
+			service := NewGraphMutationService(repository, repository, repository)
 
 			err := testCase.invoke(service)
 
@@ -152,18 +213,18 @@ func TestGraphMutationServiceMapsRecordNotFoundErrors(t *testing.T) {
 	}
 }
 
-func TestGraphMutationServiceRejectsUnsupportedMutationContracts(t *testing.T) {
-	service := NewGraphMutationService(&mutationRepositoryBase{})
+func TestGraphMutationServiceRejectsIncompleteRepositoryDependencies(t *testing.T) {
+	service := NewGraphMutationService(nil, nil, nil)
 
-	err := service.DeleteNode(context.Background(), "11111111-1111-1111-1111-111111111111")
+	_, err := service.DeleteNode(context.Background(), "11111111-1111-1111-1111-111111111111")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "node deletion is not supported")
+	assert.ErrorContains(t, err, "command repository")
 
 	err = service.DeleteEdge(context.Background(), "22222222-2222-2222-2222-222222222222")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "edge deletion is not supported")
+	assert.ErrorContains(t, err, "command repository")
 
-	err = service.UpdateNode(context.Background(), "33333333-3333-3333-3333-333333333333", nil, model.JSONDocument(`{}`))
+	_, err = service.PatchNode(context.Background(), "33333333-3333-3333-3333-333333333333", model.NodePatch{})
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "node updates are not supported")
+	assert.ErrorContains(t, err, "command repository")
 }

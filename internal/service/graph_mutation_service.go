@@ -6,79 +6,99 @@ import (
 	"strings"
 
 	model "treemindmap/internal/graph"
+	shared "treemindmap/shared"
 )
-
-type nodeDeleter interface {
-	DeleteNode(ctx context.Context, nodeID string) error
-}
-
-type edgeDeleter interface {
-	DeleteEdge(ctx context.Context, edgeID string) error
-}
-
-type nodeUpdater interface {
-	UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error
-}
-
-type nodePositionUpdater interface {
-	UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error
-}
 
 // GraphMutationService coordinates graph writes against the repository layer.
 type GraphMutationService struct {
-	repository model.GraphRepository
+	queryRepository     model.GraphQueryRepository
+	commandRepository   model.GraphCommandRepository
+	traversalRepository model.GraphTraversalRepository
 }
 
 // NewGraphMutationService constructs a mutation service with the repository used for writes.
-func NewGraphMutationService(repository model.GraphRepository) *GraphMutationService {
-	return &GraphMutationService{repository: repository}
+func NewGraphMutationService(
+	queryRepository model.GraphQueryRepository,
+	commandRepository model.GraphCommandRepository,
+	traversalRepository model.GraphTraversalRepository,
+) *GraphMutationService {
+	return &GraphMutationService{
+		queryRepository:     queryRepository,
+		commandRepository:   commandRepository,
+		traversalRepository: traversalRepository,
+	}
 }
 
-func (s *GraphMutationService) CreateNode(ctx context.Context, node *model.Node) error {
+func (s *GraphMutationService) CreateNode(ctx context.Context, node *model.Node) (*model.Node, error) {
 	if ctx == nil {
-		return ErrNilContext
+		return nil, ErrNilContext
 	}
 
-	if s == nil || s.repository == nil {
-		return fmt.Errorf("service: nil repository")
+	if s == nil || s.commandRepository == nil {
+		return nil, fmt.Errorf("service: nil command repository")
 	}
 
 	if node == nil || node.ID == "" {
-		return ErrNodeNotFound
+		return nil, ErrNodeNotFound
 	}
 
-	return s.repository.CreateNode(ctx, node)
+	return s.commandRepository.CreateNode(ctx, node)
 }
 
-func (s *GraphMutationService) CreateEdge(ctx context.Context, edge *model.Edge) error {
+func (s *GraphMutationService) CreateEdge(ctx context.Context, edge *model.Edge) (*model.Edge, error) {
 	if ctx == nil {
-		return ErrNilContext
+		return nil, ErrNilContext
 	}
 
-	if s == nil || s.repository == nil {
-		return fmt.Errorf("service: nil repository")
+	if s == nil || s.commandRepository == nil || s.queryRepository == nil {
+		return nil, fmt.Errorf("service: incomplete repository dependencies")
 	}
 
 	if edge == nil || edge.ID == "" {
-		return fmt.Errorf("service: invalid edge")
+		return nil, fmt.Errorf("service: invalid edge")
+	}
+
+	referencedNodes, err := s.queryRepository.GetNodesByIDs(ctx, []string{edge.SourceID, edge.TargetID})
+	if err != nil {
+		return nil, err
+	}
+
+	nodeSet := make(map[string]struct{}, len(referencedNodes))
+	for _, node := range referencedNodes {
+		if node == nil || node.ID == "" {
+			continue
+		}
+
+		nodeSet[node.ID] = struct{}{}
+	}
+
+	if _, exists := nodeSet[edge.SourceID]; !exists {
+		return nil, ErrSourceNodeNotFound
+	}
+	if _, exists := nodeSet[edge.TargetID]; !exists {
+		return nil, ErrTargetNodeNotFound
 	}
 
 	if relationTypeRequiresAcyclicConstraint(edge.RelationType) {
+		if s.traversalRepository == nil {
+			return nil, fmt.Errorf("service: nil traversal repository")
+		}
+
 		if edge.SourceID == edge.TargetID {
-			return ErrCyclicDependency
+			return nil, ErrCyclicDependency
 		}
 
 		createsCycle, err := s.createsCycle(ctx, edge.SourceID, edge.TargetID, edge.RelationType)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if createsCycle {
-			return ErrCyclicDependency
+			return nil, ErrCyclicDependency
 		}
 	}
 
-	return s.repository.CreateEdge(ctx, edge)
+	return s.commandRepository.CreateEdge(ctx, edge)
 }
 
 func (s *GraphMutationService) GetNodesByIDs(ctx context.Context, nodeIDs []string) ([]*model.Node, error) {
@@ -86,35 +106,31 @@ func (s *GraphMutationService) GetNodesByIDs(ctx context.Context, nodeIDs []stri
 		return nil, ErrNilContext
 	}
 
-	if s == nil || s.repository == nil {
-		return nil, fmt.Errorf("service: nil repository")
+	if s == nil || s.queryRepository == nil {
+		return nil, fmt.Errorf("service: nil query repository")
 	}
 
-	return s.repository.GetNodesByIDs(ctx, nodeIDs)
+	return s.queryRepository.GetNodesByIDs(ctx, nodeIDs)
 }
 
-func (s *GraphMutationService) DeleteNode(ctx context.Context, nodeID string) error {
+func (s *GraphMutationService) DeleteNode(ctx context.Context, nodeID string) (*model.NodeDeletionSnapshot, error) {
 	if ctx == nil {
-		return ErrNilContext
+		return nil, ErrNilContext
 	}
 
-	if s == nil || s.repository == nil {
-		return fmt.Errorf("service: nil repository")
+	if s == nil || s.commandRepository == nil {
+		return nil, fmt.Errorf("service: nil command repository")
 	}
 
-	deleter, ok := s.repository.(nodeDeleter)
-	if !ok {
-		return fmt.Errorf("service: node deletion is not supported by repository")
-	}
-
-	if err := deleter.DeleteNode(ctx, nodeID); err != nil {
+	snapshot, err := s.commandRepository.DeleteNode(ctx, nodeID)
+	if err != nil {
 		if model.IsRecordNotFound(err) {
-			return ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return err
+		return nil, err
 	}
 
-	return nil
+	return snapshot, nil
 }
 
 func (s *GraphMutationService) DeleteEdge(ctx context.Context, edgeID string) error {
@@ -122,16 +138,11 @@ func (s *GraphMutationService) DeleteEdge(ctx context.Context, edgeID string) er
 		return ErrNilContext
 	}
 
-	if s == nil || s.repository == nil {
-		return fmt.Errorf("service: nil repository")
+	if s == nil || s.commandRepository == nil {
+		return fmt.Errorf("service: nil command repository")
 	}
 
-	deleter, ok := s.repository.(edgeDeleter)
-	if !ok {
-		return fmt.Errorf("service: edge deletion is not supported by repository")
-	}
-
-	if err := deleter.DeleteEdge(ctx, edgeID); err != nil {
+	if err := s.commandRepository.DeleteEdge(ctx, edgeID); err != nil {
 		if model.IsRecordNotFound(err) {
 			return ErrEdgeNotFound
 		}
@@ -141,52 +152,44 @@ func (s *GraphMutationService) DeleteEdge(ctx context.Context, edgeID string) er
 	return nil
 }
 
-func (s *GraphMutationService) UpdateNode(ctx context.Context, nodeID string, content *string, properties model.JSONDocument) error {
+func (s *GraphMutationService) PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error) {
 	if ctx == nil {
-		return ErrNilContext
+		return nil, ErrNilContext
 	}
 
-	if s == nil || s.repository == nil {
-		return fmt.Errorf("service: nil repository")
+	if s == nil || s.commandRepository == nil {
+		return nil, fmt.Errorf("service: nil command repository")
 	}
 
-	updater, ok := s.repository.(nodeUpdater)
-	if !ok {
-		return fmt.Errorf("service: node updates are not supported by repository")
-	}
-
-	if err := updater.UpdateNode(ctx, nodeID, content, properties); err != nil {
+	node, err := s.commandRepository.PatchNode(ctx, nodeID, patch)
+	if err != nil {
 		if model.IsRecordNotFound(err) {
-			return ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return err
+		return nil, err
 	}
 
-	return nil
+	return node, nil
 }
 
-func (s *GraphMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) error {
+func (s *GraphMutationService) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) (*model.Node, error) {
 	if ctx == nil {
-		return ErrNilContext
+		return nil, ErrNilContext
 	}
 
-	if s == nil || s.repository == nil {
-		return fmt.Errorf("service: nil repository")
+	if s == nil || s.commandRepository == nil {
+		return nil, fmt.Errorf("service: nil command repository")
 	}
 
-	updater, ok := s.repository.(nodePositionUpdater)
-	if !ok {
-		return fmt.Errorf("service: node position updates are not supported by repository")
-	}
-
-	if err := updater.UpdateNodePosition(ctx, nodeID, x, y); err != nil {
+	node, err := s.commandRepository.UpdateNodePosition(ctx, nodeID, x, y)
+	if err != nil {
 		if model.IsRecordNotFound(err) {
-			return ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return err
+		return nil, err
 	}
 
-	return nil
+	return node, nil
 }
 
 func (s *GraphMutationService) createsCycle(ctx context.Context, sourceNodeID string, targetNodeID string, relationType string) (bool, error) {
@@ -207,7 +210,7 @@ func (s *GraphMutationService) createsCycle(ctx context.Context, sourceNodeID st
 			return true, nil
 		}
 
-		adjoiningNodes, err := s.repository.GetAdjoiningNodes(ctx, currentNodeID, relationType, model.DirectionOut)
+		adjoiningNodes, err := s.traversalRepository.GetAdjoiningNodes(ctx, currentNodeID, relationType, model.DirectionOut)
 		if err != nil {
 			return false, err
 		}
@@ -230,10 +233,6 @@ func (s *GraphMutationService) createsCycle(ctx context.Context, sourceNodeID st
 }
 
 func relationTypeRequiresAcyclicConstraint(relationType string) bool {
-	switch strings.ToUpper(strings.TrimSpace(relationType)) {
-	case "BELONGS_TO", "PARENT_CHILD", "DEPENDS_ON", "CONTAINS":
-		return true
-	default:
-		return false
-	}
+	definition, ok := shared.LookupRelationDefinition(strings.TrimSpace(relationType))
+	return ok && definition.IsAcyclic
 }

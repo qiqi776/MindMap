@@ -77,7 +77,7 @@ func main() {
 
 	repository := model.NewGormRepository(database)
 	queryService := appservice.NewGraphQueryService(repository)
-	mutationService := appservice.NewGraphMutationService(repository)
+	mutationService := appservice.NewGraphMutationService(repository, repository, repository)
 	controller := httpapi.NewGraphController(queryService, mutationService, maxQueryDepth)
 
 	engine := gin.New()
@@ -193,7 +193,7 @@ func bootstrapDefaultGraph(ctx context.Context, database *gorm.DB, logger *log.L
 
 	var focusNode model.Node
 	if err := database.WithContext(ctx).
-		Where("id = ? AND deleted_at IS NULL", defaultFocusNodeID).
+		Where("id = ?", defaultFocusNodeID).
 		First(&focusNode).Error; err == nil {
 		return nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {

@@ -51,7 +51,6 @@ import {
 } from '@/hooks/useGraphShortcuts';
 import {
   useForceLayout,
-  type GraphVO,
   type MindMapNode,
   type MindMapNodeData,
 } from '@/hooks/useForceLayout';
@@ -66,7 +65,6 @@ import { collectHiddenDescendantNodeIDs, hasCollapsibleChildren } from '@/lib/gr
 import {
   createGraphEdge,
   deleteGraphEdge,
-  fetchFocusGraph,
   GraphApiError,
   isRequestAbortError,
   updateGraphNode,
@@ -76,7 +74,6 @@ import {
 import { useGraphStore } from '@/store/useGraphStore';
 
 interface GraphCanvasProps {
-  graph: GraphVO;
   className?: string;
 }
 
@@ -238,26 +235,30 @@ function RelationInputPopover(props: {
   );
 }
 
-function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElement {
+function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
+  const storeNodes = useGraphStore((state) => state.nodes);
+  const storeEdges = useGraphStore((state) => state.edges);
   const focusNodeId = useGraphStore((state) => state.focusNodeId);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectedEdgeId = useGraphStore((state) => state.selectedEdgeId);
   const isLoading = useGraphStore((state) => state.isLoading);
   const error = useGraphStore((state) => state.error);
+  const graphSessionId = useGraphStore((state) => state.graphSessionId);
   const setError = useGraphStore((state) => state.setError);
   const setSelectedNode = useGraphStore((state) => state.setSelectedNode);
   const setSelectedEdge = useGraphStore((state) => state.setSelectedEdge);
   const clearSelection = useGraphStore((state) => state.clearSelection);
+  const fetchFocusGraph = useGraphStore((state) => state.fetchFocusGraph);
+  const startGraphSession = useGraphStore((state) => state.startGraphSession);
   const { setCenter } = useReactFlow();
 
   useGraphShortcuts(selectedNodeId, selectedEdgeId);
 
   const { containerRef, viewportSize } = useViewportSize<HTMLDivElement>();
-  const topology = useMemo(() => buildFlowTopology(graph), [graph]);
-  const [layoutNodes, setLayoutNodes] = useState<MindMapNode[]>(topology.nodes);
-  const [layoutEdges, setLayoutEdges] = useState<SemanticMindMapEdge[]>(topology.edges);
-  const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNodeData>(topology.nodes);
-  const [edges, setEdges] = useEdgesState<SemanticEdgeData>(topology.edges);
+  const [layoutNodes, setLayoutNodes] = useState<MindMapNode[]>(storeNodes);
+  const [layoutEdges, setLayoutEdges] = useState<SemanticMindMapEdge[]>(storeEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState<MindMapNodeData>(storeNodes);
+  const [edges, setEdges] = useEdgesState<SemanticEdgeData>(storeEdges);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const hiddenDescendantNodeIDs = useMemo(() => collectHiddenDescendantNodeIDs(layoutNodes, layoutEdges), [layoutEdges, layoutNodes]);
   const visibleLayoutNodes = useMemo(() => layoutNodes.filter((node) => !hiddenDescendantNodeIDs.has(node.id)), [hiddenDescendantNodeIDs, layoutNodes]);
@@ -265,26 +266,20 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     const visibleNodeIDs = new Set(visibleLayoutNodes.map((node) => node.id));
     return layoutEdges.filter((edge) => visibleNodeIDs.has(edge.source) && visibleNodeIDs.has(edge.target));
   }, [layoutEdges, visibleLayoutNodes]);
-  const nodesRef = useRef<MindMapNode[]>(topology.nodes);
-  const edgesRef = useRef<SemanticMindMapEdge[]>(topology.edges);
+  const nodesRef = useRef<MindMapNode[]>(storeNodes);
+  const edgesRef = useRef<SemanticMindMapEdge[]>(storeEdges);
   const requestControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
   const requestSequenceRef = useRef(0);
 
   useEffect(() => {
-    const nextFocusNodeId = useGraphStore.getState().focusNodeId ?? topology.nodes[0]?.id ?? null;
-
-    nodesRef.current = topology.nodes;
-    edgesRef.current = topology.edges;
-    setLayoutNodes(topology.nodes);
-    setLayoutEdges(topology.edges);
-    setNodes(topology.nodes);
-    setEdges(topology.edges);
-    useGraphStore.getState().setGraphData(topology.nodes, topology.edges);
-    useGraphStore.getState().setFocusNode(nextFocusNodeId);
-    useGraphStore.getState().setSelectedNode(nextFocusNodeId);
-    useGraphStore.getState().setError(null);
-  }, [setEdges, setNodes, topology]);
+    nodesRef.current = storeNodes;
+    edgesRef.current = storeEdges;
+    setLayoutNodes(storeNodes);
+    setLayoutEdges(storeEdges);
+    setNodes(storeNodes);
+    setEdges(storeEdges);
+  }, [graphSessionId, setEdges, setNodes, storeEdges, storeNodes]);
 
   useEffect(() => {
     nodesRef.current = nodes as MindMapNode[];
@@ -514,8 +509,9 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
 
     try {
       await updateGraphNode(selectedNodeId, {
-        content: selectedNode.data.raw.content,
-        properties: nextProperties,
+        properties: {
+          collapsed: nextProperties.collapsed,
+        },
       });
     } catch (error) {
       useGraphStore.getState().updateNodeProperties(selectedNodeId, currentProperties);
@@ -563,9 +559,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
     previousFocusNodeId: string | null,
   ) => {
     try {
-      const nextGraph = await fetchFocusGraph(focusAnchor.id, DEFAULT_GRAPH_DEPTH, {
-        signal: controller.signal,
-      });
+      const nextGraph = await fetchFocusGraph(focusAnchor.id, DEFAULT_GRAPH_DEPTH, controller.signal);
 
       if (requestControllerRef.current !== controller || requestSequenceRef.current !== requestSequence) {
         return;
@@ -585,6 +579,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
       scheduleFocusReheat(focusAnchor);
       useGraphStore.getState().setFocusNode(focusAnchor.id);
       useGraphStore.getState().setSelectedNode(focusAnchor.id);
+      startGraphSession();
       useGraphStore.getState().setLoading(false);
       useGraphStore.getState().setError(null);
       panCameraToCenter();
@@ -671,7 +666,7 @@ function GraphCanvasContent({ graph, className }: GraphCanvasProps): ReactElemen
 
   useEffect(() => {
     cancelConnection();
-  }, [cancelConnection, graph]);
+  }, [cancelConnection, graphSessionId]);
 
   const rootClassName = ['graph-canvas', className].filter(Boolean).join(' ');
   const canOpenSelectedNode = Boolean(selectedNodeId && selectedNodeId !== focusNodeId);

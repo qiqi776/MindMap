@@ -1,0 +1,66 @@
+[
+  {
+    "code": "REFERENCE",
+    "label": "Reference",
+    "hierarchical": false,
+    "acyclic": false,
+    "allows_multi_parent": true,
+    "can_collapse_children": false
+  },
+  {
+    "code": "PARENT_CHILD",
+    "label": "Parent / Child",
+    "hierarchical": true,
+    "acyclic": true,
+    "allows_multi_parent": false,
+    "can_collapse_children": true
+  },
+  {
+    "code": "CHILD",
+    "label": "Child (Legacy)",
+    "hierarchical": true,
+    "acyclic": true,
+    "allows_multi_parent": false,
+    "can_collapse_children": true
+  },
+  {
+    "code": "HIERARCHY",
+    "label": "Hierarchy",
+    "hierarchical": true,
+    "acyclic": true,
+    "allows_multi_parent": false,
+    "can_collapse_children": true
+  },
+  {
+    "code": "BELONGS_TO",
+    "label": "Belongs To",
+    "hierarchical": false,
+    "acyclic": true,
+    "allows_multi_parent": true,
+    "can_collapse_children": false
+  },
+  {
+    "code": "DEPENDS_ON",
+    "label": "Depends On",
+    "hierarchical": false,
+    "acyclic": true,
+    "allows_multi_parent": true,
+    "can_collapse_children": false
+  },
+  {
+    "code": "CONTAINS",
+    "label": "Contains",
+    "hierarchical": true,
+    "acyclic": true,
+    "allows_multi_parent": false,
+    "can_collapse_children": true
+  },
+  {
+    "code": "MARRIAGE",
+    "label": "Marriage",
+    "hierarchical": false,
+    "acyclic": false,
+    "allows_multi_parent": true,
+    "can_collapse_children": false
+  }
+]

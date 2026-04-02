@@ -1,5 +1,6 @@
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
 import type { MindMapNode } from '@/hooks/useForceLayout';
+import { canCollapseChildrenForRelation } from '@/lib/relationRegistry';
 
 function isCollapsedNode(node: MindMapNode): boolean {
   return node.data.raw.properties?.collapsed === true;
@@ -7,7 +8,7 @@ function isCollapsedNode(node: MindMapNode): boolean {
 
 function isHierarchyEdge(edge: SemanticMindMapEdge): boolean {
   const relationType = edge.data?.raw?.relation_type ?? edge.data?.relationType ?? '';
-  return relationType === 'CHILD' || relationType === 'HIERARCHY';
+  return canCollapseChildrenForRelation(relationType);
 }
 
 export function hasCollapsibleChildren(nodeId: string, edges: SemanticMindMapEdge[]): boolean {
