@@ -3,6 +3,7 @@ package graph
 // NodePatch captures the partial mutable fields for one node update request.
 type NodePatch struct {
 	Content       *string
+	Collapsed     *bool
 	PropertyPatch map[string]any
 }
 

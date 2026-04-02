@@ -2,6 +2,7 @@ import type { Node } from 'reactflow';
 
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
 import type { GraphNodeVO, GraphVO, MindMapNode, MindMapNodeData } from '@/hooks/useForceLayout';
+import { readNodePositionFields } from '@/lib/nodeFields';
 
 export interface EdgeLike {
   id: string;
@@ -14,14 +15,10 @@ export interface EdgeLike {
   updated_at?: string;
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
 export function readNodeSeed(node: GraphNodeVO, index: number, total: number): { x: number; y: number } {
-  const properties = node.properties;
-  if (properties && isFiniteNumber(properties.x) && isFiniteNumber(properties.y)) {
-    return { x: properties.x, y: properties.y };
+  const canonicalPosition = readNodePositionFields(node);
+  if (canonicalPosition) {
+    return canonicalPosition;
   }
 
   const safeTotal = Math.max(total, 1);

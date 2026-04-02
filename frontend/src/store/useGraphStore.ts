@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
 import type { GraphVO, MindMapNode } from '@/hooks/useForceLayout';
 import type { GraphHistoryEntry } from '@/lib/graphHistory';
+import { sanitizeNodeProperties } from '@/lib/nodeFields';
 import { enrichParallelEdgeData } from '@/lib/graphViewModel';
 import { fetchFocusGraph, GraphApiError, isRequestAbortError } from '@/services/api';
 
@@ -34,6 +35,7 @@ export interface GraphStoreActions {
   removeNode: (nodeId: string) => void;
   removeEdge: (edgeId: string) => void;
   updateNodeContent: (nodeId: string, content: string) => void;
+  updateNodeCollapsed: (nodeId: string, collapsed: boolean) => void;
   updateNodeProperties: (nodeId: string, properties: Record<string, unknown>) => void;
   setSelectedNode: (nodeId: string | null) => void;
   setSelectedEdge: (edgeId: string | null) => void;
@@ -118,11 +120,8 @@ export const useGraphStore = create<GraphStore>((set) => ({
             ...node.data,
             raw: {
               ...node.data.raw,
-              properties: {
-                ...(node.data.raw.properties ?? {}),
-                x,
-                y,
-              },
+              x,
+              y,
             },
           },
           position: { x, y },
@@ -162,11 +161,8 @@ export const useGraphStore = create<GraphStore>((set) => ({
             ...node.data,
             raw: {
               ...node.data.raw,
-              properties: {
-                ...(node.data.raw.properties ?? {}),
-                x: nextPosition.x,
-                y: nextPosition.y,
-              },
+              x: nextPosition.x,
+              y: nextPosition.y,
             },
           },
           position: { x: nextPosition.x, y: nextPosition.y },
@@ -245,6 +241,31 @@ export const useGraphStore = create<GraphStore>((set) => ({
     }));
   },
 
+  updateNodeCollapsed: (nodeId, collapsed) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== nodeId) {
+          return node;
+        }
+
+        if (node.data.raw.collapsed === collapsed) {
+          return node;
+        }
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            raw: {
+              ...node.data.raw,
+              collapsed,
+            },
+          },
+        };
+      }),
+    }));
+  },
+
   updateNodeProperties: (nodeId, properties) => {
     set((state) => ({
       nodes: state.nodes.map((node) => {
@@ -258,7 +279,7 @@ export const useGraphStore = create<GraphStore>((set) => ({
             ...node.data,
             raw: {
               ...node.data.raw,
-              properties,
+              properties: sanitizeNodeProperties(properties),
             },
           },
         };

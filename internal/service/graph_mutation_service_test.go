@@ -59,6 +59,7 @@ type mutationRepositoryWithWrites struct {
 	deleteEdgeErr        error
 	patchNodeID          string
 	patchNodeContent     *string
+	patchNodeCollapsed   *bool
 	patchNodeProperties  map[string]any
 	patchNodeErr         error
 }
@@ -84,6 +85,7 @@ func (r *mutationRepositoryWithWrites) DeleteEdge(ctx context.Context, edgeID st
 func (r *mutationRepositoryWithWrites) PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error) {
 	r.patchNodeID = nodeID
 	r.patchNodeContent = patch.Content
+	r.patchNodeCollapsed = patch.Collapsed
 	if patch.PropertyPatch != nil {
 		r.patchNodeProperties = make(map[string]any, len(patch.PropertyPatch))
 		for key, value := range patch.PropertyPatch {
@@ -103,26 +105,31 @@ func TestGraphMutationServicePatchNodeDelegatesPartialPayload(t *testing.T) {
 	testCases := []struct {
 		name            string
 		content         *string
+		collapsed       *bool
 		properties      map[string]any
 		assertDelegated func(t *testing.T, repository *mutationRepositoryWithWrites)
 	}{
 		{
 			name:       "omitted content remains nil",
 			content:    nil,
-			properties: map[string]any{"x": 12.0, "y": 34.0},
+			collapsed:  nil,
+			properties: map[string]any{"shape": "pill"},
 			assertDelegated: func(t *testing.T, repository *mutationRepositoryWithWrites) {
 				assert.Nil(t, repository.patchNodeContent)
-				assert.Equal(t, 12.0, repository.patchNodeProperties["x"])
-				assert.Equal(t, 34.0, repository.patchNodeProperties["y"])
+				assert.Nil(t, repository.patchNodeCollapsed)
+				assert.Equal(t, "pill", repository.patchNodeProperties["shape"])
 			},
 		},
 		{
 			name:       "explicit empty string is preserved",
 			content:    &emptyContent,
+			collapsed:  boolPointer(true),
 			properties: map[string]any{"shape": "pill"},
 			assertDelegated: func(t *testing.T, repository *mutationRepositoryWithWrites) {
 				require.NotNil(t, repository.patchNodeContent)
 				assert.Equal(t, "", *repository.patchNodeContent)
+				require.NotNil(t, repository.patchNodeCollapsed)
+				assert.True(t, *repository.patchNodeCollapsed)
 				assert.Equal(t, "pill", repository.patchNodeProperties["shape"])
 			},
 		},
@@ -135,6 +142,7 @@ func TestGraphMutationServicePatchNodeDelegatesPartialPayload(t *testing.T) {
 
 			_, err := service.PatchNode(context.Background(), "11111111-1111-1111-1111-111111111111", model.NodePatch{
 				Content:       testCase.content,
+				Collapsed:     testCase.collapsed,
 				PropertyPatch: testCase.properties,
 			})
 
@@ -143,6 +151,10 @@ func TestGraphMutationServicePatchNodeDelegatesPartialPayload(t *testing.T) {
 			testCase.assertDelegated(t, repository)
 		})
 	}
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }
 
 func TestGraphMutationServiceCreateEdgeValidatesReferencedNodes(t *testing.T) {

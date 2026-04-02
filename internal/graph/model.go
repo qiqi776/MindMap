@@ -80,8 +80,8 @@ func (j *JSONDocument) UnmarshalJSON(data []byte) error {
 }
 
 // Node stores one graph vertex in the mesh-style mind map domain.
-// It persists the stable UUID identity, domain type, summary content, and
-// extensible client-facing properties required for layout and rendering.
+// It persists the stable UUID identity, domain type, summary content, layout
+// coordinates, collapse state, and extensible client-facing properties.
 type Node struct {
 	// ID stores a UUID string so the node can be created independently of any
 	// single database instance, shard, or auto-increment sequence.
@@ -96,8 +96,20 @@ type Node struct {
 	// common preview surface in traversal and search results.
 	Content string `gorm:"column:content;type:text;not null"`
 
-	// Properties stores the extensible JSON document used for coordinates,
-	// visual style, and additional business attributes required by clients.
+	// X stores the horizontal layout coordinate as a first-class persisted field
+	// so position changes are isolated from generic property updates.
+	X float64 `gorm:"column:x;type:double;not null;default:0"`
+
+	// Y stores the vertical layout coordinate as a first-class persisted field
+	// so position changes are isolated from generic property updates.
+	Y float64 `gorm:"column:y;type:double;not null;default:0"`
+
+	// Collapsed marks whether hierarchical descendants should be hidden by
+	// default in graph clients.
+	Collapsed bool `gorm:"column:collapsed;type:boolean;not null;default:false"`
+
+	// Properties stores the extensible JSON document used for additional
+	// business attributes beyond the first-class node fields.
 	Properties JSONDocument `gorm:"column:properties;type:json;not null"`
 
 	// CreatedAt records when the node was first persisted for audit,

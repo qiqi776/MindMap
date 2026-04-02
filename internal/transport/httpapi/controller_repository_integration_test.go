@@ -53,11 +53,14 @@ func TestPatchNodeMergesPropertyPatchAgainstStoredNode(t *testing.T) {
 		ID:         "11111111-1111-1111-1111-111111111111",
 		Type:       "text",
 		Content:    "focus",
-		Properties: model.JSONDocument(`{"x":12,"y":34,"collapsed":false,"color":"blue"}`),
+		X:          12,
+		Y:          34,
+		Collapsed:  false,
+		Properties: model.JSONDocument(`{"color":"blue"}`),
 	})
 	require.NoError(t, err)
 
-	requestBody := []byte(`{"properties":{"collapsed":true}}`)
+	requestBody := []byte(`{"collapsed":true}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/v1/nodes/11111111-1111-1111-1111-111111111111", bytes.NewReader(requestBody))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -72,9 +75,9 @@ func TestPatchNodeMergesPropertyPatchAgainstStoredNode(t *testing.T) {
 
 	var properties map[string]any
 	require.NoError(t, json.Unmarshal(nodes[0].Properties, &properties))
-	assert.Equal(t, 12.0, properties["x"])
-	assert.Equal(t, 34.0, properties["y"])
-	assert.Equal(t, true, properties["collapsed"])
+	assert.Equal(t, 12.0, nodes[0].X)
+	assert.Equal(t, 34.0, nodes[0].Y)
+	assert.True(t, nodes[0].Collapsed)
 	assert.Equal(t, "blue", properties["color"])
 }
 
@@ -85,14 +88,18 @@ func TestDeleteNodeReturnsIncidentEdgesInResponse(t *testing.T) {
 		ID:         "11111111-1111-1111-1111-111111111111",
 		Type:       "text",
 		Content:    "focus",
-		Properties: model.JSONDocument(`{"x":0,"y":0}`),
+		X:          0,
+		Y:          0,
+		Properties: model.JSONDocument(`{}`),
 	})
 	require.NoError(t, err)
 	_, err = harness.repository.CreateNode(context.Background(), &model.Node{
 		ID:         "22222222-2222-2222-2222-222222222222",
 		Type:       "text",
 		Content:    "child",
-		Properties: model.JSONDocument(`{"x":10,"y":10}`),
+		X:          10,
+		Y:          10,
+		Properties: model.JSONDocument(`{}`),
 	})
 	require.NoError(t, err)
 	_, err = harness.repository.CreateEdge(context.Background(), &model.Edge{

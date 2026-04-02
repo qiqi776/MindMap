@@ -34,6 +34,7 @@ type stubMutationService struct {
 	deleteEdgeErr       error
 	patchNodeID         string
 	patchNodeContent    *string
+	patchNodeCollapsed  *bool
 	patchNodeProperties map[string]any
 	patchNodeErr        error
 }
@@ -69,6 +70,7 @@ func (s *stubMutationService) DeleteEdge(ctx context.Context, edgeID string) err
 func (s *stubMutationService) PatchNode(ctx context.Context, nodeID string, patch model.NodePatch) (*model.Node, error) {
 	s.patchNodeID = nodeID
 	s.patchNodeContent = patch.Content
+	s.patchNodeCollapsed = patch.Collapsed
 	if patch.PropertyPatch != nil {
 		s.patchNodeProperties = make(map[string]any, len(patch.PropertyPatch))
 		for key, value := range patch.PropertyPatch {
@@ -82,6 +84,10 @@ func (s *stubMutationService) PatchNode(ctx context.Context, nodeID string, patc
 	content := "existing node"
 	if patch.Content != nil {
 		content = *patch.Content
+	}
+	collapsed := false
+	if patch.Collapsed != nil {
+		collapsed = *patch.Collapsed
 	}
 
 	properties := model.JSONDocument(`{}`)
@@ -97,6 +103,9 @@ func (s *stubMutationService) PatchNode(ctx context.Context, nodeID string, patc
 		ID:         nodeID,
 		Type:       "text",
 		Content:    content,
+		X:          120.5,
+		Y:          240.25,
+		Collapsed:  collapsed,
 		Properties: properties,
 	}, nil
 }
@@ -106,7 +115,10 @@ func (s *stubMutationService) UpdateNodePosition(ctx context.Context, nodeID str
 		ID:         nodeID,
 		Type:       "text",
 		Content:    "positioned",
-		Properties: model.JSONDocument(`{"x":120.5,"y":240.25}`),
+		X:          120.5,
+		Y:          240.25,
+		Collapsed:  false,
+		Properties: model.JSONDocument(`{}`),
 	}, nil
 }
 
@@ -165,6 +177,26 @@ func TestCreateEdgeUsesJSONTagNamesInValidationError(t *testing.T) {
 	}
 }
 
+func TestCreateNodeRequiresCanonicalCoordinates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	controller := NewGraphController(&stubQueryService{}, &stubMutationService{}, 3)
+	engine := gin.New()
+	RegisterGraphRoutes(engine, controller, nil)
+
+	requestBody := []byte(`{"id":"11111111-1111-1111-1111-111111111111","type":"text","content":"root","properties":{"shape":"pill"}}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/nodes", bytes.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	responseBody := recorder.Body.String()
+	assert.Contains(t, responseBody, "x failed on required")
+	assert.Contains(t, responseBody, "y failed on required")
+}
+
 func TestSanitizedStackOmitsWorkspacePath(t *testing.T) {
 	stack := sanitizedStack(8, 2048)
 	if strings.Contains(stack, "/home/zz/workspace/projects/treemindmap") {
@@ -180,7 +212,7 @@ func TestPatchNodePreservesNilContentForPartialUpdate(t *testing.T) {
 	engine := gin.New()
 	RegisterGraphRoutes(engine, controller, nil)
 
-	requestBody := []byte(`{"properties":{"x":120.5,"y":240.25}}`)
+	requestBody := []byte(`{"collapsed":true,"properties":{"shape":"pill"}}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/v1/nodes/11111111-1111-1111-1111-111111111111", bytes.NewReader(requestBody))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -190,8 +222,9 @@ func TestPatchNodePreservesNilContentForPartialUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.Equal(t, "11111111-1111-1111-1111-111111111111", mutationService.patchNodeID)
 	assert.Nil(t, mutationService.patchNodeContent)
-	assert.Equal(t, 120.5, mutationService.patchNodeProperties["x"])
-	assert.Equal(t, 240.25, mutationService.patchNodeProperties["y"])
+	require.NotNil(t, mutationService.patchNodeCollapsed)
+	assert.True(t, *mutationService.patchNodeCollapsed)
+	assert.Equal(t, "pill", mutationService.patchNodeProperties["shape"])
 
 	var envelope Response[map[string]any]
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
@@ -199,10 +232,12 @@ func TestPatchNodePreservesNilContentForPartialUpdate(t *testing.T) {
 	assert.Equal(t, "success", envelope.Message)
 	assert.Equal(t, "11111111-1111-1111-1111-111111111111", envelope.Data["id"])
 	assert.Equal(t, "existing node", envelope.Data["content"])
+	assert.Equal(t, 120.5, envelope.Data["x"])
+	assert.Equal(t, 240.25, envelope.Data["y"])
+	assert.Equal(t, true, envelope.Data["collapsed"])
 	properties, ok := envelope.Data["properties"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, 120.5, properties["x"])
-	assert.Equal(t, 240.25, properties["y"])
+	assert.Equal(t, "pill", properties["shape"])
 }
 
 func TestPatchNodePassesExplicitEmptyStringContent(t *testing.T) {

@@ -144,6 +144,9 @@ export interface components {
             id: string;
             type: string;
             content: string;
+            x: number;
+            y: number;
+            collapsed: boolean;
             properties: components["schemas"]["JsonObject"];
             /** Format: date-time */
             created_at: string;
@@ -184,6 +187,9 @@ export interface components {
             id: string;
             type: string;
             content: string;
+            x: number;
+            y: number;
+            collapsed?: boolean;
             properties?: components["schemas"]["JsonObject"];
         };
         CreateEdgeRequest: {
@@ -199,6 +205,7 @@ export interface components {
         };
         PatchNodeRequest: {
             content?: string;
+            collapsed?: boolean;
             properties?: components["schemas"]["JsonObject"];
         };
         UpdateNodePositionRequest: {

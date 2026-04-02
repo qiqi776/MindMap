@@ -4,6 +4,7 @@ import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
 import type { GraphNodeRecord } from '@/contracts/graph';
 import type { MindMapNode } from '@/hooks/useForceLayout';
 import type { GraphHistoryEntry, GraphHistorySnapshot } from '@/lib/graphHistory';
+import { sanitizeNodeProperties } from '@/lib/nodeFields';
 import { toFlowNode, toSemanticEdge, type EdgeLike } from '@/lib/graphViewModel';
 import { DEFAULT_HIERARCHY_RELATION_TYPE, isHierarchicalRelationType } from '@/lib/relationRegistry';
 import {
@@ -137,10 +138,10 @@ function buildShortcutNodeRecord(nodeID: string, x: number, y: number): GraphNod
     id: nodeID,
     type: DEFAULT_NODE_TYPE,
     content: DEFAULT_NODE_CONTENT,
-    properties: {
-      x,
-      y,
-    },
+    x,
+    y,
+    collapsed: false,
+    properties: {},
   };
 }
 
@@ -160,7 +161,10 @@ function buildCreateNodeRequest(node: GraphNodeRecord): CreateGraphNodeRequest {
     id: node.id,
     type: node.type,
     content: node.content,
-    properties: node.properties ?? {},
+    x: node.x,
+    y: node.y,
+    collapsed: node.collapsed,
+    properties: sanitizeNodeProperties(node.properties),
   };
 }
 
@@ -375,7 +379,10 @@ async function deleteSelectedNode(selectedNodeId: string): Promise<void> {
             id: deletionSnapshot.node.id,
             type: deletionSnapshot.node.type,
             content: deletionSnapshot.node.content,
-            properties: deletionSnapshot.node.properties ?? {},
+            x: deletionSnapshot.node.x,
+            y: deletionSnapshot.node.y,
+            collapsed: deletionSnapshot.node.collapsed,
+            properties: sanitizeNodeProperties(deletionSnapshot.node.properties),
           });
           for (const edge of deletionSnapshot.edges) {
             await createGraphEdge({

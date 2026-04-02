@@ -67,8 +67,24 @@ func main() {
 
 	configureConnectionPool(databaseDriver, sqlDatabase)
 
-	if err := database.AutoMigrate(&model.Node{}, &model.Edge{}); err != nil {
+	if err := database.AutoMigrate(&model.Node{}, &model.Edge{}, &model.AppMigration{}); err != nil {
 		logger.Fatalf("failed to auto migrate schema: %v", err)
+	}
+
+	backfillResult, err := model.BackfillLegacyNodeLayoutColumns(context.Background(), database)
+	if err != nil {
+		logger.Fatalf("failed to run node layout backfill: %v", err)
+	}
+	if backfillResult.Skipped {
+		logger.Printf("node layout backfill already applied migration=%s", backfillResult.MigrationID)
+	} else {
+		logger.Printf(
+			"node layout backfill applied migration=%s total=%d updated=%d invalid=%d",
+			backfillResult.MigrationID,
+			backfillResult.TotalNodes,
+			backfillResult.UpdatedNodes,
+			backfillResult.InvalidPropertyRows,
+		)
 	}
 
 	if err := bootstrapDefaultGraph(context.Background(), database, logger); err != nil {
@@ -205,19 +221,28 @@ func bootstrapDefaultGraph(ctx context.Context, database *gorm.DB, logger *log.L
 			ID:         defaultFocusNodeID,
 			Type:       "text",
 			Content:    "TreeMindMap Demo",
-			Properties: model.JSONDocument(`{"x":0,"y":0}`),
+			X:          0,
+			Y:          0,
+			Collapsed:  false,
+			Properties: model.JSONDocument(`{}`),
 		},
 		{
 			ID:         defaultFrontendNodeID,
 			Type:       "text",
 			Content:    "Focus Switching Frontend",
-			Properties: model.JSONDocument(`{"x":180,"y":-80}`),
+			X:          180,
+			Y:          -80,
+			Collapsed:  false,
+			Properties: model.JSONDocument(`{}`),
 		},
 		{
 			ID:         defaultBackendNodeID,
 			Type:       "text",
 			Content:    "Graph Service Backend",
-			Properties: model.JSONDocument(`{"x":180,"y":80}`),
+			X:          180,
+			Y:          80,
+			Collapsed:  false,
+			Properties: model.JSONDocument(`{}`),
 		},
 	}
 

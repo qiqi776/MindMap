@@ -31,22 +31,26 @@ func TestPatchNodeMergesPropertyPatchWithoutDiscardingExistingKeys(t *testing.T)
 		ID:         "11111111-1111-1111-1111-111111111111",
 		Type:       "text",
 		Content:    "focus",
-		Properties: JSONDocument(`{"x":12,"y":34,"collapsed":false,"color":"blue"}`),
+		X:          12,
+		Y:          34,
+		Collapsed:  false,
+		Properties: JSONDocument(`{"color":"blue"}`),
 	})
 	require.NoError(t, err)
 
 	node, err := repository.PatchNode(ctx, "11111111-1111-1111-1111-111111111111", NodePatch{
 		PropertyPatch: map[string]any{
-			"collapsed": true,
+			"shape": "pill",
 		},
 	})
 
 	require.NoError(t, err)
+	assert.Equal(t, 12.0, node.X)
+	assert.Equal(t, 34.0, node.Y)
+	assert.False(t, node.Collapsed)
 	properties := decodePropertiesForTest(t, node.Properties)
-	assert.Equal(t, 12.0, properties["x"])
-	assert.Equal(t, 34.0, properties["y"])
-	assert.Equal(t, true, properties["collapsed"])
 	assert.Equal(t, "blue", properties["color"])
+	assert.Equal(t, "pill", properties["shape"])
 }
 
 func TestUpdateNodePositionPreservesOtherProperties(t *testing.T) {
@@ -57,18 +61,88 @@ func TestUpdateNodePositionPreservesOtherProperties(t *testing.T) {
 		ID:         "11111111-1111-1111-1111-111111111111",
 		Type:       "text",
 		Content:    "focus",
-		Properties: JSONDocument(`{"collapsed":true,"color":"blue"}`),
+		Collapsed:  true,
+		Properties: JSONDocument(`{"color":"blue"}`),
 	})
 	require.NoError(t, err)
 
 	node, err := repository.UpdateNodePosition(ctx, "11111111-1111-1111-1111-111111111111", 120.5, 240.25)
 
 	require.NoError(t, err)
+	assert.Equal(t, 120.5, node.X)
+	assert.Equal(t, 240.25, node.Y)
+	assert.True(t, node.Collapsed)
 	properties := decodePropertiesForTest(t, node.Properties)
-	assert.Equal(t, 120.5, properties["x"])
-	assert.Equal(t, 240.25, properties["y"])
-	assert.Equal(t, true, properties["collapsed"])
 	assert.Equal(t, "blue", properties["color"])
+}
+
+func TestPatchNodeUpdatesCollapsedWithoutWritingLegacyProperties(t *testing.T) {
+	repository := newTestRepository(t)
+	ctx := context.Background()
+
+	_, err := repository.CreateNode(ctx, &Node{
+		ID:         "11111111-1111-1111-1111-111111111111",
+		Type:       "text",
+		Content:    "focus",
+		X:          12,
+		Y:          34,
+		Collapsed:  false,
+		Properties: JSONDocument(`{"color":"blue"}`),
+	})
+	require.NoError(t, err)
+
+	node, err := repository.PatchNode(ctx, "11111111-1111-1111-1111-111111111111", NodePatch{
+		Collapsed: boolPointer(true),
+	})
+
+	require.NoError(t, err)
+	assert.True(t, node.Collapsed)
+	assert.Equal(t, 12.0, node.X)
+	assert.Equal(t, 34.0, node.Y)
+	properties := decodePropertiesForTest(t, node.Properties)
+	assert.Equal(t, "blue", properties["color"])
+	_, hasCollapsed := properties["collapsed"]
+	assert.False(t, hasCollapsed)
+}
+
+func TestPatchNodeIgnoresReservedLayoutKeysInPropertiesPatch(t *testing.T) {
+	repository := newTestRepository(t)
+	ctx := context.Background()
+
+	_, err := repository.CreateNode(ctx, &Node{
+		ID:         "11111111-1111-1111-1111-111111111111",
+		Type:       "text",
+		Content:    "focus",
+		X:          12,
+		Y:          34,
+		Collapsed:  false,
+		Properties: JSONDocument(`{"color":"blue"}`),
+	})
+	require.NoError(t, err)
+
+	node, err := repository.PatchNode(ctx, "11111111-1111-1111-1111-111111111111", NodePatch{
+		PropertyPatch: map[string]any{
+			"x":         999.0,
+			"y":         888.0,
+			"collapsed": true,
+			"shape":     "pill",
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 12.0, node.X)
+	assert.Equal(t, 34.0, node.Y)
+	assert.False(t, node.Collapsed)
+
+	properties := decodePropertiesForTest(t, node.Properties)
+	assert.Equal(t, "blue", properties["color"])
+	assert.Equal(t, "pill", properties["shape"])
+	_, hasX := properties["x"]
+	_, hasY := properties["y"]
+	_, hasCollapsed := properties["collapsed"]
+	assert.False(t, hasX)
+	assert.False(t, hasY)
+	assert.False(t, hasCollapsed)
 }
 
 func TestDeleteNodeReturnsFullIncidentEdgeSnapshot(t *testing.T) {
@@ -79,21 +153,27 @@ func TestDeleteNodeReturnsFullIncidentEdgeSnapshot(t *testing.T) {
 		ID:         "11111111-1111-1111-1111-111111111111",
 		Type:       "text",
 		Content:    "focus",
-		Properties: JSONDocument(`{"x":0,"y":0}`),
+		X:          0,
+		Y:          0,
+		Properties: JSONDocument(`{}`),
 	})
 	require.NoError(t, err)
 	_, err = repository.CreateNode(ctx, &Node{
 		ID:         "22222222-2222-2222-2222-222222222222",
 		Type:       "text",
 		Content:    "left",
-		Properties: JSONDocument(`{"x":-10,"y":0}`),
+		X:          -10,
+		Y:          0,
+		Properties: JSONDocument(`{}`),
 	})
 	require.NoError(t, err)
 	_, err = repository.CreateNode(ctx, &Node{
 		ID:         "33333333-3333-3333-3333-333333333333",
 		Type:       "text",
 		Content:    "right",
-		Properties: JSONDocument(`{"x":10,"y":0}`),
+		X:          10,
+		Y:          0,
+		Properties: JSONDocument(`{}`),
 	})
 	require.NoError(t, err)
 	_, err = repository.CreateEdge(ctx, &Edge{
@@ -142,4 +222,8 @@ func decodePropertiesForTest(t *testing.T, document JSONDocument) map[string]any
 	var properties map[string]any
 	require.NoError(t, json.Unmarshal(document, &properties))
 	return properties
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }

@@ -137,10 +137,18 @@ func (ctl *GraphController) CreateNode(c *gin.Context) {
 		return
 	}
 
+	collapsed := false
+	if request.Collapsed != nil {
+		collapsed = *request.Collapsed
+	}
+
 	node := &model.Node{
 		ID:         request.ID,
 		Type:       request.Type,
 		Content:    request.Content,
+		X:          *request.X,
+		Y:          *request.Y,
+		Collapsed:  collapsed,
 		Properties: properties,
 	}
 
@@ -273,7 +281,8 @@ func (ctl *GraphController) UpdateNode(c *gin.Context) {
 	}
 
 	patch := model.NodePatch{
-		Content: request.Content,
+		Content:   request.Content,
+		Collapsed: request.Collapsed,
 	}
 	if request.Properties != nil {
 		patch.PropertyPatch = *request.Properties
@@ -391,6 +400,9 @@ func toNodeVO(node *model.Node) NodeVO {
 		ID:         node.ID,
 		Type:       node.Type,
 		Content:    node.Content,
+		X:          node.X,
+		Y:          node.Y,
+		Collapsed:  node.Collapsed,
 		Properties: toRawJSON(node.Properties),
 		CreatedAt:  node.CreatedAt,
 		UpdatedAt:  node.UpdatedAt,

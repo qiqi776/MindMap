@@ -13,6 +13,7 @@ import type { Edge, Node, NodeDragHandler, XYPosition } from 'reactflow';
 
 import type { FocusGraphRecord, GraphEdgeRecord, GraphNodeRecord } from '@/contracts/graph';
 import type { FocusNodeAnchor } from '@/lib/graphUtils';
+import { readNodePositionFields } from '@/lib/nodeFields';
 import { GraphApiError, updateGraphNodePosition } from '@/services/api';
 import { useGraphStore } from '@/store/useGraphStore';
 
@@ -87,18 +88,12 @@ function readNodePosition(node: MindMapNode): XYPosition | null {
     return node.position;
   }
 
-  const properties = node.data.raw.properties;
-  if (!properties) {
+  const canonicalPosition = readNodePositionFields(node.data.raw);
+  if (!canonicalPosition) {
     return null;
   }
 
-  const x = properties.x;
-  const y = properties.y;
-  if (!isFiniteNumber(x) || !isFiniteNumber(y)) {
-    return null;
-  }
-
-  return { x, y };
+  return canonicalPosition;
 }
 
 function seedNodePosition(index: number, total: number, width: number, height: number): XYPosition {
@@ -192,11 +187,8 @@ export function useForceLayout({
             ...node.data,
             raw: {
               ...node.data.raw,
-              properties: {
-                ...(node.data.raw.properties ?? {}),
-                x: nextX,
-                y: nextY,
-              },
+              x: nextX,
+              y: nextY,
             },
           },
           position: { x: nextX, y: nextY },
@@ -431,11 +423,8 @@ export function useForceLayout({
           ...currentNode.data,
           raw: {
             ...currentNode.data.raw,
-            properties: {
-              ...(currentNode.data.raw.properties ?? {}),
-              x: positionedNode.position.x,
-              y: positionedNode.position.y,
-            },
+            x: positionedNode.position.x,
+            y: positionedNode.position.y,
           },
         },
       };

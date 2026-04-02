@@ -240,18 +240,9 @@ func (r *GormRepository) PatchNode(ctx context.Context, nodeID string, patch Nod
 		return nil, err
 	}
 
-	updateFields := make(map[string]any, 2)
-	if patch.Content != nil {
-		updateFields["content"] = *patch.Content
-	}
-
-	if patch.PropertyPatch != nil {
-		mergedProperties, err := mergeNodeProperties(node.Properties, patch.PropertyPatch)
-		if err != nil {
-			return nil, err
-		}
-
-		updateFields["properties"] = mergedProperties
+	updateFields, err := buildNodeUpdateFields(patch, node.Properties)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(updateFields) == 0 {
@@ -276,43 +267,57 @@ func (r *GormRepository) PatchNode(ctx context.Context, nodeID string, patch Nod
 	return &node, nil
 }
 
-// UpdateNodePosition persists x and y coordinates into the node properties JSON document.
+// UpdateNodePosition persists x and y coordinates into first-class node columns.
 func (r *GormRepository) UpdateNodePosition(ctx context.Context, nodeID string, x float64, y float64) (*Node, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("graph: nil database handle")
 	}
 
-	var node Node
-	if err := r.db.WithContext(ctx).
-		First(&node, "id = ?", nodeID).Error; err != nil {
-		return nil, err
-	}
-
-	properties, err := decodeNodeProperties(node.Properties)
-	if err != nil {
-		return nil, err
-	}
-
-	properties["x"] = x
-	properties["y"] = y
-
-	encodedProperties, err := json.Marshal(properties)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := r.db.WithContext(ctx).
+	result := r.db.WithContext(ctx).
 		Model(&Node{}).
 		Where("id = ?", nodeID).
-		Updates(map[string]any{"properties": JSONDocument(encodedProperties)}).Error; err != nil {
-		return nil, err
+		Updates(map[string]any{
+			"x": x,
+			"y": y,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
 	}
 
+	var node Node
 	if err := r.db.WithContext(ctx).First(&node, "id = ?", nodeID).Error; err != nil {
 		return nil, err
 	}
 
 	return &node, nil
+}
+
+func buildNodeUpdateFields(patch NodePatch, currentProperties JSONDocument) (map[string]any, error) {
+	updateFields := make(map[string]any, 3)
+	if patch.Content != nil {
+		updateFields["content"] = *patch.Content
+	}
+
+	if patch.Collapsed != nil {
+		updateFields["collapsed"] = *patch.Collapsed
+	}
+
+	if patch.PropertyPatch != nil {
+		filteredPropertyPatch := filterReservedNodePropertyPatch(patch.PropertyPatch)
+		if len(filteredPropertyPatch) > 0 {
+			mergedProperties, err := mergeNodeProperties(currentProperties, filteredPropertyPatch)
+			if err != nil {
+				return nil, err
+			}
+
+			updateFields["properties"] = mergedProperties
+		}
+	}
+
+	return updateFields, nil
 }
 
 func uniqueNonEmptyStrings(values []string) []string {
@@ -389,4 +394,30 @@ func mergeNodeProperties(current JSONDocument, patch map[string]any) (JSONDocume
 	}
 
 	return JSONDocument(encodedProperties), nil
+}
+
+func filterReservedNodePropertyPatch(patch map[string]any) map[string]any {
+	if len(patch) == 0 {
+		return nil
+	}
+
+	filteredPatch := make(map[string]any, len(patch))
+	for key, value := range patch {
+		if isReservedNodePropertyKey(key) {
+			continue
+		}
+
+		filteredPatch[key] = value
+	}
+
+	return filteredPatch
+}
+
+func isReservedNodePropertyKey(key string) bool {
+	switch key {
+	case "x", "y", "collapsed":
+		return true
+	default:
+		return false
+	}
 }

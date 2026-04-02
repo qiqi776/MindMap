@@ -23,7 +23,7 @@ describe('useGraphStore', () => {
     resetGraphStore();
   });
 
-  it('updates node positions and mirrors coordinates into raw properties', () => {
+  it('updates node positions into canonical raw node fields', () => {
     useGraphStore.getState().setGraphData([
       {
         id: 'node-1',
@@ -36,6 +36,9 @@ describe('useGraphStore', () => {
             id: 'node-1',
             type: 'text',
             content: 'Node 1',
+            x: 0,
+            y: 0,
+            collapsed: false,
             properties: { color: 'blue' },
           },
         },
@@ -46,11 +49,9 @@ describe('useGraphStore', () => {
 
     const [node] = useGraphStore.getState().nodes;
     expect(node?.position).toEqual({ x: 120.5, y: 240.25 });
-    expect(node?.data.raw.properties).toMatchObject({
-      color: 'blue',
-      x: 120.5,
-      y: 240.25,
-    });
+    expect(node?.data.raw.x).toBe(120.5);
+    expect(node?.data.raw.y).toBe(240.25);
+    expect(node?.data.raw.properties).toMatchObject({ color: 'blue' });
   });
 
   it('clears history when a new graph session starts', () => {

@@ -1,4 +1,4 @@
-.PHONY: init run-back run-front test-back test-front typecheck-front generate-contracts
+.PHONY: init run-back run-front test-back test-front typecheck-front generate-contracts guard-node-layout
 
 init:
 	go mod tidy
@@ -21,3 +21,6 @@ typecheck-front:
 
 test-front:
 	cd frontend && npm run test
+
+guard-node-layout:
+	./scripts/check-node-layout-guard.sh

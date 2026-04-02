@@ -1,9 +1,10 @@
 import type { SemanticMindMapEdge } from '@/components/SemanticEdge';
 import type { MindMapNode } from '@/hooks/useForceLayout';
+import { readNodeCollapsedField } from '@/lib/nodeFields';
 import { canCollapseChildrenForRelation } from '@/lib/relationRegistry';
 
 function isCollapsedNode(node: MindMapNode): boolean {
-  return node.data.raw.properties?.collapsed === true;
+  return readNodeCollapsedField(node.data.raw);
 }
 
 function isHierarchyEdge(edge: SemanticMindMapEdge): boolean {

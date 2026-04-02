@@ -68,7 +68,7 @@ func (s *integrationMutationService) DeleteNode(ctx context.Context, nodeID stri
 	}
 
 	return &model.NodeDeletionSnapshot{
-		Node: &model.Node{ID: nodeID, Type: "text", Content: "deleted", Properties: model.JSONDocument(`{"x":0,"y":0}`)},
+		Node: &model.Node{ID: nodeID, Type: "text", Content: "deleted", X: 0, Y: 0, Collapsed: false, Properties: model.JSONDocument(`{}`)},
 	}, nil
 }
 
@@ -94,11 +94,18 @@ func (s *integrationMutationService) PatchNode(ctx context.Context, nodeID strin
 	if patch.Content != nil {
 		content = *patch.Content
 	}
+	collapsed := false
+	if patch.Collapsed != nil {
+		collapsed = *patch.Collapsed
+	}
 
 	return &model.Node{
 		ID:         nodeID,
 		Type:       "text",
 		Content:    content,
+		X:          120.5,
+		Y:          240.25,
+		Collapsed:  collapsed,
 		Properties: properties,
 	}, nil
 }
@@ -112,7 +119,10 @@ func (s *integrationMutationService) UpdateNodePosition(ctx context.Context, nod
 		ID:         nodeID,
 		Type:       "text",
 		Content:    "positioned",
-		Properties: model.JSONDocument(`{"x":120.5,"y":240.25}`),
+		X:          120.5,
+		Y:          240.25,
+		Collapsed:  false,
+		Properties: model.JSONDocument(`{}`),
 	}, nil
 }
 
@@ -123,8 +133,8 @@ func TestGetFocusGraphReturnsArrayContractForFrontend(t *testing.T) {
 		&integrationQueryService{
 			subgraph: &appservice.SubGraphDTO{
 				Nodes: map[string]*model.Node{
-					linkedNodeID: {ID: linkedNodeID, Type: "text", Content: "child", Properties: model.JSONDocument(`{"x":12,"y":34}`)},
-					focusNodeID:  {ID: focusNodeID, Type: "text", Content: "focus", Properties: model.JSONDocument(`{"x":0,"y":0}`)},
+					linkedNodeID: {ID: linkedNodeID, Type: "text", Content: "child", X: 12, Y: 34, Collapsed: false, Properties: model.JSONDocument(`{}`)},
+					focusNodeID:  {ID: focusNodeID, Type: "text", Content: "focus", X: 0, Y: 0, Collapsed: false, Properties: model.JSONDocument(`{}`)},
 				},
 				Edges: map[string]*model.Edge{
 					edgeID: {ID: edgeID, SourceID: focusNodeID, TargetID: linkedNodeID, RelationType: "REFERENCE", Weight: 2, Properties: model.JSONDocument(`{"color":"#64748b"}`)},

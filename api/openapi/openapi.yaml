@@ -325,6 +325,9 @@ components:
         - id
         - type
         - content
+        - x
+        - y
+        - collapsed
         - properties
         - created_at
         - updated_at
@@ -337,6 +340,12 @@ components:
           maxLength: 64
         content:
           type: string
+        x:
+          type: number
+        y:
+          type: number
+        collapsed:
+          type: boolean
         properties:
           $ref: '#/components/schemas/JsonObject'
         created_at:
@@ -426,6 +435,8 @@ components:
         - id
         - type
         - content
+        - x
+        - y
       properties:
         id:
           type: string
@@ -435,6 +446,12 @@ components:
           maxLength: 64
         content:
           type: string
+        x:
+          type: number
+        y:
+          type: number
+        collapsed:
+          type: boolean
         properties:
           $ref: '#/components/schemas/JsonObject'
     CreateEdgeRequest:
@@ -467,6 +484,8 @@ components:
       properties:
         content:
           type: string
+        collapsed:
+          type: boolean
         properties:
           $ref: '#/components/schemas/JsonObject'
       additionalProperties: false

@@ -55,6 +55,7 @@ import {
   type MindMapNodeData,
 } from '@/hooks/useForceLayout';
 import { mergeGraphData, type FocusNodeAnchor } from '@/lib/graphUtils';
+import { readNodeCollapsedField } from '@/lib/nodeFields';
 import {
   buildFlowTopology,
   enrichParallelEdgeData,
@@ -467,13 +468,10 @@ function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
       return;
     }
 
-    const currentProperties = { ...(selectedNode.data.raw.properties ?? {}) };
-    const nextProperties = {
-      ...currentProperties,
-      collapsed: currentProperties.collapsed !== true,
-    };
+    const currentCollapsed = readNodeCollapsedField(selectedNode.data.raw);
+    const nextCollapsed = !currentCollapsed;
 
-    useGraphStore.getState().updateNodeProperties(selectedNodeId, nextProperties);
+    useGraphStore.getState().updateNodeCollapsed(selectedNodeId, nextCollapsed);
     setNodes((currentNodes) => currentNodes.map((node) => {
       if (node.id !== selectedNodeId) {
         return node;
@@ -485,7 +483,7 @@ function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
           ...node.data,
           raw: {
             ...node.data.raw,
-            properties: nextProperties,
+            collapsed: nextCollapsed,
           },
         },
       };
@@ -501,7 +499,7 @@ function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
           ...node.data,
           raw: {
             ...node.data.raw,
-            properties: nextProperties,
+            collapsed: nextCollapsed,
           },
         },
       };
@@ -509,12 +507,10 @@ function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
 
     try {
       await updateGraphNode(selectedNodeId, {
-        properties: {
-          collapsed: nextProperties.collapsed,
-        },
+        collapsed: nextCollapsed,
       });
     } catch (error) {
-      useGraphStore.getState().updateNodeProperties(selectedNodeId, currentProperties);
+      useGraphStore.getState().updateNodeCollapsed(selectedNodeId, currentCollapsed);
       setNodes((currentNodes) => currentNodes.map((node) => {
         if (node.id !== selectedNodeId) {
           return node;
@@ -526,7 +522,7 @@ function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
             ...node.data,
             raw: {
               ...node.data.raw,
-              properties: currentProperties,
+              collapsed: currentCollapsed,
             },
           },
         };
@@ -542,7 +538,7 @@ function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
             ...node.data,
             raw: {
               ...node.data.raw,
-              properties: currentProperties,
+              collapsed: currentCollapsed,
             },
           },
         };
@@ -675,7 +671,7 @@ function GraphCanvasContent({ className }: GraphCanvasProps): ReactElement {
   const canRedo = canRedoGraphCommand();
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
   const canToggleCollapse = Boolean(selectedNodeId && hasCollapsibleChildren(selectedNodeId, layoutEdges));
-  const isSelectedNodeCollapsed = selectedNode?.data.raw.properties?.collapsed === true;
+  const isSelectedNodeCollapsed = selectedNode ? readNodeCollapsedField(selectedNode.data.raw) : false;
   const normalizedSearchQuery = normalizeSearchValue(searchQuery);
   const searchResults = useMemo(() => {
     if (normalizedSearchQuery.length === 0) {

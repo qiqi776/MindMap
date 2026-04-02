@@ -22,6 +22,9 @@ type NodeVO struct {
 	ID         string          `json:"id"`
 	Type       string          `json:"type"`
 	Content    string          `json:"content"`
+	X          float64         `json:"x"`
+	Y          float64         `json:"y"`
+	Collapsed  bool            `json:"collapsed"`
 	Properties json.RawMessage `json:"properties"`
 	CreatedAt  time.Time       `json:"created_at"`
 	UpdatedAt  time.Time       `json:"updated_at"`
@@ -67,6 +70,9 @@ type CreateNodeRequest struct {
 	ID         string         `json:"id" binding:"required,uuid"`
 	Type       string         `json:"type" binding:"required,max=64"`
 	Content    string         `json:"content" binding:"required"`
+	X          *float64       `json:"x" binding:"required"`
+	Y          *float64       `json:"y" binding:"required"`
+	Collapsed  *bool          `json:"collapsed"`
 	Properties map[string]any `json:"properties"`
 }
 
@@ -85,6 +91,10 @@ type UpdateNodeRequest struct {
 	// Content carries the optional node content update. A nil value means the
 	// client did not provide the field in the JSON payload.
 	Content *string `json:"content"`
+
+	// Collapsed carries the optional collapsed state update.
+	// Nil means "leave unchanged".
+	Collapsed *bool `json:"collapsed"`
 
 	// Properties carries the partial JSON patch applied onto the stored node
 	// properties document. Omitted means "leave unchanged".
