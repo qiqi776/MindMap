@@ -9,6 +9,7 @@ vendor/
 *.out
 coverage.out
 *.pb.go
+.codex
 
 node_modules/
 frontend/node_modules/

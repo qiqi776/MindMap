@@ -9,10 +9,9 @@ export interface EdgeLike {
   target_id: string;
   relation_type: string;
   weight: number;
-  properties?: Record<string, unknown> | null;
+  properties?: Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
-  deleted_at?: string | null;
 }
 
 function isFiniteNumber(value: unknown): value is number {

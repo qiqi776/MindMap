@@ -1,55 +1,19 @@
-export interface GraphNodeRecord {
-  id: string;
-  type: string;
-  content: string;
-  properties?: Record<string, unknown> | null;
-  created_at?: string;
-  updated_at?: string;
-}
+import type { components } from '@/generated/openapi';
 
-export interface GraphEdgeRecord {
-  id: string;
-  source_id: string;
-  target_id: string;
-  relation_type: string;
-  weight: number;
-  properties?: Record<string, unknown> | null;
-  created_at?: string;
-  updated_at?: string;
-}
+type PersistedGraphNode = components['schemas']['Node'];
+type PersistedGraphEdge = components['schemas']['Edge'];
 
+export type GraphNodeRecord = Omit<PersistedGraphNode, 'created_at' | 'updated_at' | 'properties'> & Partial<Pick<PersistedGraphNode, 'created_at' | 'updated_at' | 'properties'>>;
+export type GraphEdgeRecord = Omit<PersistedGraphEdge, 'created_at' | 'updated_at' | 'properties'> & Partial<Pick<PersistedGraphEdge, 'created_at' | 'updated_at' | 'properties'>>;
 export interface FocusGraphRecord {
   nodes: GraphNodeRecord[];
   edges: GraphEdgeRecord[];
 }
-
 export interface NodeDeletionSnapshotRecord {
   node: GraphNodeRecord;
   edges: GraphEdgeRecord[];
 }
-
-export interface CreateGraphNodeRequest {
-  id: string;
-  type: string;
-  content: string;
-  properties?: Record<string, unknown>;
-}
-
-export interface CreateGraphEdgeRequest {
-  id: string;
-  source_id: string;
-  target_id: string;
-  relation_type: string;
-  weight?: number;
-  properties?: Record<string, unknown>;
-}
-
-export interface PatchGraphNodeRequest {
-  content?: string;
-  properties?: Record<string, unknown>;
-}
-
-export interface UpdateGraphNodePositionRequest {
-  x: number;
-  y: number;
-}
+export type CreateGraphNodeRequest = components['schemas']['CreateNodeRequest'];
+export type CreateGraphEdgeRequest = components['schemas']['CreateEdgeRequest'];
+export type PatchGraphNodeRequest = components['schemas']['PatchNodeRequest'];
+export type UpdateGraphNodePositionRequest = components['schemas']['UpdateNodePositionRequest'];

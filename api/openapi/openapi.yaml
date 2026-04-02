@@ -1,0 +1,483 @@
+openapi: 3.0.3
+info:
+  title: TreeMindMap HTTP API
+  version: 0.2.0
+  description: HTTP contract for querying and mutating the TreeMindMap graph.
+servers:
+  - url: http://127.0.0.1:8080
+tags:
+  - name: Graph
+  - name: Nodes
+  - name: Edges
+paths:
+  /api/v1/graph/{node_id}:
+    get:
+      tags:
+        - Graph
+      operationId: getFocusGraph
+      summary: Fetch a bounded focus graph around one node
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: depth
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 1
+      responses:
+        '200':
+          description: Graph fetched successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FocusGraphEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/Timeout'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/nodes:
+    post:
+      tags:
+        - Nodes
+      operationId: createNode
+      summary: Create one node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNodeRequest'
+      responses:
+        '201':
+          description: Node created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/nodes/{node_id}:
+    patch:
+      tags:
+        - Nodes
+      operationId: patchNode
+      summary: Apply a partial node update
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchNodeRequest'
+      responses:
+        '200':
+          description: Node updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Nodes
+      operationId: deleteNode
+      summary: Delete one node and return a restore snapshot
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Node deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeDeletionSnapshotEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/nodes/{node_id}/position:
+    patch:
+      tags:
+        - Nodes
+      operationId: updateNodePosition
+      summary: Persist node coordinates
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNodePositionRequest'
+      responses:
+        '200':
+          description: Position updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodePositionEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/edges:
+    post:
+      tags:
+        - Edges
+      operationId: createEdge
+      summary: Create one semantic edge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEdgeRequest'
+      responses:
+        '201':
+          description: Edge created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/edges/{edge_id}:
+    delete:
+      tags:
+        - Edges
+      operationId: deleteEdge
+      summary: Delete one edge
+      parameters:
+        - name: edge_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Edge deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  responses:
+    BadRequest:
+      description: Invalid request payload or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: Request conflicts with a domain rule
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Timeout:
+      description: Request timed out or was canceled
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: Unexpected server-side failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    ApiEnvelopeBase:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelopeBase'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              nullable: true
+    FocusGraphEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelopeBase'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              $ref: '#/components/schemas/FocusGraph'
+    NodeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelopeBase'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              $ref: '#/components/schemas/Node'
+    EdgeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelopeBase'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              $ref: '#/components/schemas/Edge'
+    NodeDeletionSnapshotEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelopeBase'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              $ref: '#/components/schemas/NodeDeletionSnapshot'
+    NodePositionEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelopeBase'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              $ref: '#/components/schemas/NodePosition'
+    NullEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelopeBase'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              nullable: true
+    JsonObject:
+      type: object
+      additionalProperties: true
+    Node:
+      type: object
+      required:
+        - id
+        - type
+        - content
+        - properties
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          maxLength: 64
+        content:
+          type: string
+        properties:
+          $ref: '#/components/schemas/JsonObject'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Edge:
+      type: object
+      required:
+        - id
+        - source_id
+        - target_id
+        - relation_type
+        - weight
+        - properties
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        target_id:
+          type: string
+          format: uuid
+        relation_type:
+          type: string
+          maxLength: 64
+        weight:
+          type: integer
+          minimum: 1
+        properties:
+          $ref: '#/components/schemas/JsonObject'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    FocusGraph:
+      type: object
+      required:
+        - nodes
+        - edges
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+    NodeDeletionSnapshot:
+      type: object
+      required:
+        - node
+        - edges
+      properties:
+        node:
+          $ref: '#/components/schemas/Node'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+    NodePosition:
+      type: object
+      required:
+        - node_id
+        - x
+        - y
+      properties:
+        node_id:
+          type: string
+          format: uuid
+        x:
+          type: number
+        y:
+          type: number
+    CreateNodeRequest:
+      type: object
+      required:
+        - id
+        - type
+        - content
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          maxLength: 64
+        content:
+          type: string
+        properties:
+          $ref: '#/components/schemas/JsonObject'
+    CreateEdgeRequest:
+      type: object
+      required:
+        - id
+        - source_id
+        - target_id
+        - relation_type
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        target_id:
+          type: string
+          format: uuid
+        relation_type:
+          type: string
+          maxLength: 64
+        weight:
+          type: integer
+          minimum: 1
+        properties:
+          $ref: '#/components/schemas/JsonObject'
+    PatchNodeRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        properties:
+          $ref: '#/components/schemas/JsonObject'
+      additionalProperties: false
+    UpdateNodePositionRequest:
+      type: object
+      required:
+        - x
+        - y
+      properties:
+        x:
+          type: number
+        y:
+          type: number
+      additionalProperties: false

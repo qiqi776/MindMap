@@ -1,4 +1,4 @@
-.PHONY: init run-back run-front test-back test-front typecheck-front
+.PHONY: init run-back run-front test-back test-front typecheck-front generate-contracts
 
 init:
 	go mod tidy
@@ -9,6 +9,9 @@ run-back:
 
 run-front:
 	cd frontend && npm run dev
+
+generate-contracts:
+	cd frontend && npm run generate:contracts
 
 test-back:
 	GOCACHE=/tmp/go-build GOMODCACHE=/tmp/go-mod GOTMPDIR=/tmp go test ./...
